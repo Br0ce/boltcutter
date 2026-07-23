@@ -8,6 +8,14 @@ A terminal UI for browsing [bbolt](https://github.com/etcd-io/bbolt) databases.
 
 BoltCutter opens a bbolt database file and lets you navigate its buckets and key/value pairs interactively — no need to write ad-hoc scripts to peek inside.
 
+## Development
+
+Regenerate the golden test database in `testdata/`:
+
+```
+make gen-testdata
+```
+
 ## License
 
 [Apache 2.0](LICENSE)

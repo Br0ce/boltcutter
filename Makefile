@@ -1,6 +1,9 @@
-.PHONY: build format lint clean-test test test-v test-race clean run build tidy setup
+.PHONY: build format lint clean-test test test-v test-race clean run build tidy setup gen-testdata
 format:
 	go fmt ./...
+
+gen-testdata:
+	go generate ./...
 
 lint:
 	golangci-lint run ./...
