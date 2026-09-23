@@ -3,20 +3,22 @@ package ui
 import (
 	"slices"
 	"testing"
+
+	"github.com/Br0ce/boltcutter/store"
 )
 
 // items returns n entries named "a", "b", …
-func items(n int) []Entry {
-	out := make([]Entry, n)
+func items(n int) []store.Entry {
+	out := make([]store.Entry, n)
 	for i := range out {
-		out[i] = Entry{Name: string(rune('a' + i))}
+		out[i] = store.Entry{Name: string(rune('a' + i))}
 	}
 
 	return out
 }
 
 // names returns the entry names of a window, for comparison in tests.
-func names(entries []Entry) []string {
+func names(entries []store.Entry) []string {
 	if entries == nil {
 		return nil
 	}

@@ -1,14 +1,17 @@
-// Package ui implements the terminal user interface for browsing a bbolt
+// Package store implements the terminal user interface for browsing a bbolt
 // database. It shows the database as columns that shift left as you dive
 // into nested buckets, with the rightmost column previewing whatever is
 // selected.
-package ui
+package store
 
 import (
 	"fmt"
+	"path"
 
 	bolt "go.etcd.io/bbolt"
 )
+
+var _ Store = (*boltStore)(nil)
 
 // An Entry is one element of a bucket: either a nested bucket or a
 // key/value pair.
@@ -66,19 +69,19 @@ func (s *boltStore) Entries(path []string) ([]Entry, error) {
 	return entries, nil
 }
 
-func (s *boltStore) Value(path []string, key string) ([]byte, error) {
+func (s *boltStore) Value(paths []string, key string) ([]byte, error) {
 	var value []byte
 	err := s.db.View(func(tx *bolt.Tx) error {
-		bucket, err := bucketAt(tx, path)
+		bucket, err := bucketAt(tx, paths)
 		if err != nil {
 			return err
 		}
 		if bucket == nil {
-			return fmt.Errorf("bucket %q not found", joinPath(path))
+			return fmt.Errorf("bucket %q not found", path.Join(paths...))
 		}
 		v := bucket.Get([]byte(key))
 		if v == nil {
-			return fmt.Errorf("key %q not found in bucket %q", key, joinPath(path))
+			return fmt.Errorf("key %q not found in bucket %q", key, path.Join(paths...))
 		}
 		value = make([]byte, len(v))
 		copy(value, v)

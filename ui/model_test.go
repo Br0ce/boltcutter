@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Br0ce/boltcutter/store"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -15,7 +16,7 @@ import (
 // joined with "/", which is enough for tests that never use "/" in a
 // bucket name.
 type fakeStore struct {
-	entries map[string][]Entry
+	entries map[string][]store.Entry
 	values  map[string]string
 	err     error
 }
@@ -24,7 +25,7 @@ type fakeStore struct {
 // JSON values and a bucket holding both a key and a sub-bucket.
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		entries: map[string][]Entry{
+		entries: map[string][]store.Entry{
 			"": {{Name: "config", Bucket: true}, {Name: "users", Bucket: true}},
 			"config": {
 				{Name: "flags", Bucket: true},
@@ -42,7 +43,7 @@ func newFakeStore() *fakeStore {
 	}
 }
 
-func (s *fakeStore) Entries(path []string) ([]Entry, error) {
+func (s *fakeStore) Entries(path []string) ([]store.Entry, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
@@ -90,7 +91,7 @@ func pressType(t *testing.T, m Model, key tea.KeyType) Model {
 
 // newTestModel returns a model sized to a terminal large enough that
 // nothing scrolls.
-func newTestModel(t *testing.T, store Store) Model {
+func newTestModel(t *testing.T, store store.Store) Model {
 	t.Helper()
 
 	updated, _ := New(store, "testdata/test.db").Update(tea.WindowSizeMsg{Width: 100, Height: 24})
@@ -318,13 +319,13 @@ func TestReloadKeepsPosition(t *testing.T) {
 func TestReloadDropsVanishedBucket(t *testing.T) {
 	t.Parallel()
 
-	store := newFakeStore()
-	m := newTestModel(t, store)
+	fs := newFakeStore()
+	m := newTestModel(t, fs)
 	m = pressType(t, m, tea.KeyEnter) // into config
 	m = pressType(t, m, tea.KeyEnter) // into config/flags
 
 	// The sub-bucket disappears underneath the UI.
-	store.entries["config"] = []Entry{{Name: "version"}}
+	fs.entries["config"] = []store.Entry{{Name: "version"}}
 	m = press(t, m, "r")
 
 	if !slices.Equal(m.path(), []string{"config"}) {

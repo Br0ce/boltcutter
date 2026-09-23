@@ -1,10 +1,12 @@
 package ui
 
+import "github.com/Br0ce/boltcutter/store"
+
 // list is a vertically scrolling list of bucket entries with a cursor. It keeps
 // the cursor inside the visible window by adjusting the scroll offset
 // whenever the cursor or the window height moves.
 type list struct {
-	items  []Entry
+	items  []store.Entry
 	cursor int
 	offset int
 	height int
@@ -12,7 +14,7 @@ type list struct {
 
 // setItems replaces the content of the list and clamps the cursor, so a
 // reload that shortens the list never leaves the cursor dangling.
-func (l *list) setItems(items []Entry) {
+func (l *list) setItems(items []store.Entry) {
 	l.items = items
 	l.setCursor(l.cursor)
 }
@@ -25,9 +27,9 @@ func (l *list) setHeight(height int) {
 
 // selected returns the entry under the cursor, and false if the list is
 // empty.
-func (l *list) selected() (Entry, bool) {
+func (l *list) selected() (store.Entry, bool) {
 	if len(l.items) == 0 {
-		return Entry{}, false
+		return store.Entry{}, false
 	}
 
 	return l.items[l.cursor], true
@@ -66,7 +68,7 @@ func (l *list) scrollToCursor() {
 
 // window returns the currently visible items and the index of the first
 // of them within the list.
-func (l *list) window() ([]Entry, int) {
+func (l *list) window() ([]store.Entry, int) {
 	if l.height <= 0 || len(l.items) == 0 {
 		return nil, 0
 	}

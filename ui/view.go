@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 
+	"github.com/Br0ce/boltcutter/store"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -88,7 +89,7 @@ func (m Model) renderList(focused bool, l list, width int, empty string) string 
 
 // renderItem draws a single listing row. Buckets carry a trailing slash,
 // the way a directory does, so they are told apart from keys at a glance.
-func (m Model) renderItem(focused bool, entry Entry, atCursor bool, width int) string {
+func (m Model) renderItem(focused bool, entry store.Entry, atCursor bool, width int) string {
 	name := entry.Name
 	if entry.Bucket {
 		name += "/"

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"path"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -26,7 +27,7 @@ func (m Model) header() string {
 
 	left := m.styles.appName.Render(appName) + "  " +
 		m.styles.label.Render(bucketLabel+":") + " " +
-		m.styles.crumb.Render(joinPath(m.path()))
+		m.styles.crumb.Render(path.Join(m.path()...))
 
 	// Whatever room the breadcrumb leaves goes to the database file,
 	// which is truncated from the right to fit.

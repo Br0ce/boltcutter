@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	bolt "go.etcd.io/bbolt"
 
+	"github.com/Br0ce/boltcutter/store"
 	"github.com/Br0ce/boltcutter/ui"
 )
 
@@ -43,7 +44,7 @@ func browse(path string) error {
 	}
 	defer db.Close()
 
-	return ui.Run(ui.NewStore(db), path)
+	return ui.Run(store.NewStore(db), path)
 }
 
 func Execute() {

@@ -1,8 +1,7 @@
 package ui
 
 import (
-	"strings"
-
+	"github.com/Br0ce/boltcutter/store"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -49,7 +48,7 @@ type level struct {
 // from the root down to the bucket that is open, and shows the last two
 // of them next to the value of the selected key.
 type Model struct {
-	store  Store
+	store  store.Store
 	styles styles
 	// dbPath is the database file being browsed, shown in the header.
 	dbPath string
@@ -71,7 +70,7 @@ type Model struct {
 
 // New returns a Model browsing store, loaded with the database root.
 // dbPath names the file it reads and is shown in the header.
-func New(store Store, dbPath string) Model {
+func New(store store.Store, dbPath string) Model {
 	m := Model{
 		store:  store,
 		dbPath: dbPath,
@@ -335,7 +334,7 @@ func clampOffset(offset, n, height int) int {
 
 // indexOf returns the position of the entry named name, or 0 if it is
 // absent.
-func indexOf(entries []Entry, name string) int {
+func indexOf(entries []store.Entry, name string) int {
 	for i, entry := range entries {
 		if entry.Name == name {
 			return i
@@ -346,7 +345,7 @@ func indexOf(entries []Entry, name string) int {
 }
 
 // containsBucket reports whether entries hold a nested bucket named name.
-func containsBucket(entries []Entry, name string) bool {
+func containsBucket(entries []store.Entry, name string) bool {
 	for _, entry := range entries {
 		if entry.Name == name && entry.Bucket {
 			return true
@@ -356,18 +355,9 @@ func containsBucket(entries []Entry, name string) bool {
 	return false
 }
 
-// joinPath renders a bucket path as a breadcrumb.
-func joinPath(path []string) string {
-	if len(path) == 0 {
-		return "/"
-	}
-
-	return "/" + strings.Join(path, "/")
-}
-
 // Run starts the browser on the database at dbPath and blocks until the
 // user quits.
-func Run(store Store, dbPath string) error {
+func Run(store store.Store, dbPath string) error {
 	_, err := tea.NewProgram(New(store, dbPath), tea.WithAltScreen()).Run()
 
 	return err
