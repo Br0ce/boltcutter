@@ -28,24 +28,24 @@ database without writing ad-hoc scripts to peek inside.`,
 		Args:         cobra.ExactArgs(1),
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return browse(args[0])
+			path := args[0]
+			if path == "" {
+				return fmt.Errorf("database path is required")
+			}
+
+			db, err := bolt.Open(path, 0o600, &bolt.Options{
+				ReadOnly: true,
+				Timeout:  openTimeout,
+			})
+			if err != nil {
+				return fmt.Errorf("open database %q: %w", path, err)
+			}
+			defer db.Close()
+
+			return ui.Run(store.New(db), path)
 		},
 	}
 )
-
-// browse opens the database read-only and hands it to the UI.
-func browse(path string) error {
-	db, err := bolt.Open(path, 0o600, &bolt.Options{
-		ReadOnly: true,
-		Timeout:  openTimeout,
-	})
-	if err != nil {
-		return fmt.Errorf("open database %q: %w", path, err)
-	}
-	defer db.Close()
-
-	return ui.Run(store.NewStore(db), path)
-}
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {

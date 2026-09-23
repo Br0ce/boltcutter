@@ -1,8 +1,9 @@
 package ui
 
 import (
-	"github.com/Br0ce/boltcutter/store"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Br0ce/boltcutter/store"
 )
 
 // pane identifies one of the three columns.
@@ -48,7 +49,7 @@ type level struct {
 // from the root down to the bucket that is open, and shows the last two
 // of them next to the value of the selected key.
 type Model struct {
-	store  store.Store
+	store  Store
 	styles styles
 	// dbPath is the database file being browsed, shown in the header.
 	dbPath string
@@ -66,21 +67,6 @@ type Model struct {
 	width  int
 	height int
 	err    error
-}
-
-// New returns a Model browsing store, loaded with the database root.
-// dbPath names the file it reads and is shown in the header.
-func New(store store.Store, dbPath string) Model {
-	m := Model{
-		store:  store,
-		dbPath: dbPath,
-		styles: newStyles(),
-		focus:  paneCurrent,
-		levels: []level{{}},
-	}
-	m.reload()
-
-	return m
 }
 
 // Init satisfies tea.Model. The first listing is already loaded by New,
@@ -353,14 +339,6 @@ func containsBucket(entries []store.Entry, name string) bool {
 	}
 
 	return false
-}
-
-// Run starts the browser on the database at dbPath and blocks until the
-// user quits.
-func Run(store store.Store, dbPath string) error {
-	_, err := tea.NewProgram(New(store, dbPath), tea.WithAltScreen()).Run()
-
-	return err
 }
 
 var _ tea.Model = Model{}

@@ -11,8 +11,6 @@ import (
 	bolt "go.etcd.io/bbolt"
 )
 
-var _ Store = (*boltStore)(nil)
-
 // An Entry is one element of a bucket: either a nested bucket or a
 // key/value pair.
 type Entry struct {
@@ -20,34 +18,21 @@ type Entry struct {
 	Bucket bool
 }
 
-// Store is the read-only view of a bbolt database the UI works against.
-//
-// A path addresses a bucket by naming every bucket from the root down to
-// it; the empty path addresses the database root, which holds buckets but
-// no keys.
-type Store interface {
-	// Entries returns the contents of the bucket at path in key order,
-	// nested buckets and key/value pairs alike.
-	Entries(path []string) ([]Entry, error)
-	// Value returns the value stored under key in the bucket at path.
-	Value(path []string, key string) ([]byte, error)
-}
-
-// boltStore reads a bbolt database. Every call runs in its own read-only
+// Bolt reads a bbolt database. Every call runs in its own read-only
 // transaction and copies out what it returns, because bbolt only keeps
 // the memory-mapped bytes valid for the life of the transaction.
-type boltStore struct {
+type Bolt struct {
 	db *bolt.DB
 }
 
-// NewStore returns a Store reading from db.
-func NewStore(db *bolt.DB) Store {
-	return &boltStore{db: db}
+// New returns a Store reading from db.
+func New(db *bolt.DB) *Bolt {
+	return &Bolt{db: db}
 }
 
-func (s *boltStore) Entries(path []string) ([]Entry, error) {
+func (b *Bolt) Entries(path []string) ([]Entry, error) {
 	var entries []Entry
-	err := s.db.View(func(tx *bolt.Tx) error {
+	err := b.db.View(func(tx *bolt.Tx) error {
 		cursor, err := cursorAt(tx, path)
 		if err != nil {
 			return err
@@ -69,9 +54,9 @@ func (s *boltStore) Entries(path []string) ([]Entry, error) {
 	return entries, nil
 }
 
-func (s *boltStore) Value(paths []string, key string) ([]byte, error) {
+func (b *Bolt) Value(paths []string, key string) ([]byte, error) {
 	var value []byte
-	err := s.db.View(func(tx *bolt.Tx) error {
+	err := b.db.View(func(tx *bolt.Tx) error {
 		bucket, err := bucketAt(tx, paths)
 		if err != nil {
 			return err

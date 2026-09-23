@@ -11,7 +11,7 @@ import (
 
 // newTestStore returns a Store over a throwaway database holding a flat
 // bucket and a bucket with a nested sub-bucket.
-func newTestStore(t *testing.T) Store {
+func newTestStore(t *testing.T) *Bolt {
 	t.Helper()
 
 	db := testutil.TempDB(t)
@@ -42,7 +42,7 @@ func newTestStore(t *testing.T) Store {
 		t.Fatalf("populate db: %v", err)
 	}
 
-	return NewStore(db)
+	return New(db)
 }
 
 func TestEntries(t *testing.T) {

@@ -6,8 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Br0ce/boltcutter/store"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Br0ce/boltcutter/store"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -91,7 +92,7 @@ func pressType(t *testing.T, m Model, key tea.KeyType) Model {
 
 // newTestModel returns a model sized to a terminal large enough that
 // nothing scrolls.
-func newTestModel(t *testing.T, store store.Store) Model {
+func newTestModel(t *testing.T, store Store) Model {
 	t.Helper()
 
 	updated, _ := New(store, "testdata/test.db").Update(tea.WindowSizeMsg{Width: 100, Height: 24})
