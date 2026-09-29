@@ -7,61 +7,30 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/Br0ce/boltcutter/store"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/Br0ce/boltcutter/tree"
+	"github.com/Br0ce/boltcutter/value"
 )
 
-// fakeStore is an in-memory Store. Buckets are addressed by their path
-// joined with "/", which is enough for tests that never use "/" in a
-// bucket name.
-type fakeStore struct {
-	entries map[string][]store.Entry
-	values  map[string]string
-	err     error
-}
+// newTestModel returns a model sized to a terminal large enough that
+// nothing scrolls, and closes it with the test.
+func newTestModel(t *testing.T, ft *fakeTree) Model {
+	t.Helper()
 
-// newFakeStore mirrors the shape of the golden fixture: a flat bucket of
-// JSON values and a bucket holding both a key and a sub-bucket.
-func newFakeStore() *fakeStore {
-	return &fakeStore{
-		entries: map[string][]store.Entry{
-			"": {{Name: "config", Bucket: true}, {Name: "users", Bucket: true}},
-			"config": {
-				{Name: "flags", Bucket: true},
-				{Name: "version"},
-			},
-			"config/flags": {{Name: "beta"}},
-			"users":        {{Name: "user:001"}, {Name: "user:002"}},
-		},
-		values: map[string]string{
-			"config/version":    `{"major":1}`,
-			"config/flags/beta": `false`,
-			"users/user:001":    `{"id":1}`,
-			"users/user:002":    `not json`,
-		},
+	m, err := New(ft, "testdata/test.db")
+	if err != nil {
+		t.Fatalf("New: %v", err)
 	}
-}
-
-func (s *fakeStore) Entries(path []string) ([]store.Entry, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
-
-	return s.entries[strings.Join(path, "/")], nil
-}
-
-func (s *fakeStore) Value(path []string, key string) ([]byte, error) {
-	if s.err != nil {
-		return nil, s.err
-	}
-	value, ok := s.values[strings.Join(append(append([]string{}, path...), key), "/")]
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	sized, ok := updated.(Model)
 	if !ok {
-		return nil, errors.New("key not found")
+		t.Fatalf("Update returned %T, want ui.Model", updated)
 	}
+	t.Cleanup(sized.Close)
 
-	return []byte(value), nil
+	return sized
 }
 
 // press sends a key to the model and returns the updated model.
@@ -69,12 +38,12 @@ func press(t *testing.T, m Model, key string) Model {
 	t.Helper()
 
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(key)})
-	got, ok := updated.(Model)
+	next, ok := updated.(Model)
 	if !ok {
 		t.Fatalf("Update returned %T, want ui.Model", updated)
 	}
 
-	return got
+	return next
 }
 
 // pressType sends a non-rune key, such as enter or tab.
@@ -82,279 +51,349 @@ func pressType(t *testing.T, m Model, key tea.KeyType) Model {
 	t.Helper()
 
 	updated, _ := m.Update(tea.KeyMsg{Type: key})
-	got, ok := updated.(Model)
+	next, ok := updated.(Model)
 	if !ok {
 		t.Fatalf("Update returned %T, want ui.Model", updated)
 	}
 
-	return got
+	return next
 }
 
-// newTestModel returns a model sized to a terminal large enough that
-// nothing scrolls.
-func newTestModel(t *testing.T, store Store) Model {
-	t.Helper()
-
-	updated, _ := New(store, "testdata/test.db").Update(tea.WindowSizeMsg{Width: 100, Height: 24})
-	got, ok := updated.(Model)
-	if !ok {
-		t.Fatalf("Update returned %T, want ui.Model", updated)
-	}
-
-	return got
-}
-
-// selectEntry moves the cursor of the current listing onto the entry
+// selectEntry moves the cursor of the current column onto the entry
 // named name.
 func selectEntry(t *testing.T, m Model, name string) Model {
 	t.Helper()
 
-	for i, entry := range m.current().list.items {
-		if entry.Name != name {
-			continue
+	for range len(m.current().items) {
+		if entry, ok := m.current().selected(); ok && entry.Name == name {
+			return m
 		}
-		m.current().list.setCursor(i)
-		m.loadValue()
-
-		return m
+		m = press(t, m, "j")
 	}
-	t.Fatalf("no entry %q in %v", name, m.current().list.items)
+	t.Fatalf("no entry %q in the current column, got %v", name, names(m.current().items))
 
 	return m
+}
+
+// texts renders the lines of a value as plain text, one string per line.
+func texts(lines []value.Line) []string {
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		out = append(out, line.Text())
+	}
+
+	return out
 }
 
 func TestNewOpensRoot(t *testing.T) {
 	t.Parallel()
 
-	m := newTestModel(t, newFakeStore())
+	m := newTestModel(t, newFakeTree())
 
-	if len(m.levels) != 1 {
-		t.Fatalf("levels = %d, want 1", len(m.levels))
+	if len(m.columns) != 1 {
+		t.Fatalf("columns = %d, want 1", len(m.columns))
 	}
-	if got := names(m.current().list.items); !slices.Equal(got, []string{"config", "users"}) {
-		t.Errorf("root listing = %v, want [config users]", got)
+	if got := names(m.current().items); !slices.Equal(got, []string{"blobs", "config", "users"}) {
+		t.Errorf("root listing = %v, want the three buckets", got)
 	}
-	// The cursor starts on a bucket, and the preview is for values.
-	if m.valueLines != nil {
-		t.Errorf("valueLines = %q, want none with a bucket selected", m.valueLines)
-	}
-}
-
-func TestDescendShiftsColumnsLeft(t *testing.T) {
-	t.Parallel()
-
-	m := newTestModel(t, newFakeStore())
-	// The cursor starts on "config", which holds a sub-bucket.
-	m = pressType(t, m, tea.KeyEnter)
-
-	if !slices.Equal(m.path(), []string{"config"}) {
-		t.Fatalf("path = %v, want [config]", m.path())
-	}
-	// What was previewed is now the current listing, and the root has
-	// shifted into the parent column.
-	if got := names(m.current().list.items); !slices.Equal(got, []string{"flags", "version"}) {
-		t.Errorf("current listing = %v, want [flags version]", got)
-	}
-	parent := m.levels[len(m.levels)-2]
-	if got := names(parent.list.items); !slices.Equal(got, []string{"config", "users"}) {
-		t.Errorf("parent listing = %v, want [config users]", got)
-	}
-
-	// Diving into the nested bucket shifts once more.
-	m = pressType(t, m, tea.KeyEnter)
-
-	if !slices.Equal(m.path(), []string{"config", "flags"}) {
-		t.Fatalf("path = %v, want [config flags]", m.path())
-	}
-	if got := names(m.current().list.items); !slices.Equal(got, []string{"beta"}) {
-		t.Errorf("current listing = %v, want [beta]", got)
+	if len(m.path()) != 0 {
+		t.Errorf("path at the root = %q, want it empty", m.path())
 	}
 }
 
-func TestDescendIntoKeyIsANoop(t *testing.T) {
+func TestPreviewShowsTheListingOfANode(t *testing.T) {
 	t.Parallel()
 
-	m := newTestModel(t, newFakeStore())
-	m = pressType(t, m, tea.KeyEnter) // into config
-	m = selectEntry(t, m, "version")
+	// The cursor starts on "blobs", so the preview column is already
+	// holding the listing that descending into it would show.
+	m := newTestModel(t, newFakeTree())
 
-	m = pressType(t, m, tea.KeyEnter)
-
-	if !slices.Equal(m.path(), []string{"config"}) {
-		t.Errorf("path after entering a key = %v, want [config]", m.path())
+	if m.preview.column == nil {
+		t.Fatal("no listing in the preview, want the one under the cursor")
+	}
+	if got := names(m.preview.column.items); !slices.Equal(got, []string{"huge", "raw"}) {
+		t.Errorf("preview listing = %v, want the entries of blobs", got)
+	}
+	if m.preview.lines != nil {
+		t.Errorf("preview holds value lines as well as a listing: %v", texts(m.preview.lines))
 	}
 }
 
-func TestAscendShiftsColumnsBack(t *testing.T) {
+func TestDescendTakesThePreviewColumn(t *testing.T) {
 	t.Parallel()
 
-	m := newTestModel(t, newFakeStore())
-	m = pressType(t, m, tea.KeyEnter) // into config
-	m = pressType(t, m, tea.KeyEnter) // into config/flags
+	m := selectEntry(t, newTestModel(t, newFakeTree()), "config")
+	previewed := m.preview.column
 
+	m = pressType(t, m, tea.KeyEnter)
+
+	if len(m.columns) != 2 {
+		t.Fatalf("columns after descending = %d, want 2", len(m.columns))
+	}
+	// The listing was already open in the preview; descending moves
+	// it across rather than reading it again.
+	if m.current() != previewed {
+		t.Error("descending opened a new listing, want the one the preview held")
+	}
+	if want := (tree.Path{"config"}); !slices.Equal(m.path(), want) {
+		t.Errorf("path = %q, want %q", m.path(), want)
+	}
+	if got := names(m.current().items); !slices.Equal(got, []string{"flags", "version"}) {
+		t.Errorf("current listing = %v, want the entries of config", got)
+	}
+}
+
+func TestDescendIntoALeafIsANoop(t *testing.T) {
+	t.Parallel()
+
+	m := selectEntry(t, newTestModel(t, newFakeTree()), "users")
+	m = pressType(t, m, tea.KeyEnter)
+	m = selectEntry(t, m, "user:001")
+
+	before := len(m.columns)
+	m = pressType(t, m, tea.KeyEnter)
+
+	if len(m.columns) != before {
+		t.Errorf("columns after opening a key = %d, want %d", len(m.columns), before)
+	}
+	if entry, _ := m.current().selected(); entry.Name != "user:001" {
+		t.Errorf("selection after opening a key = %q, want it unmoved", entry.Name)
+	}
+}
+
+func TestAscendReturnsToTheEntryWeCameThrough(t *testing.T) {
+	t.Parallel()
+
+	m := selectEntry(t, newTestModel(t, newFakeTree()), "users")
+	m = pressType(t, m, tea.KeyEnter)
 	m = pressType(t, m, tea.KeyEsc)
 
-	if !slices.Equal(m.path(), []string{"config"}) {
-		t.Fatalf("path after esc = %v, want [config]", m.path())
+	if len(m.columns) != 1 {
+		t.Fatalf("columns after going back = %d, want 1", len(m.columns))
 	}
-	// The cursor is back on the bucket that was left.
-	entry, _ := m.current().list.selected()
-	if entry.Name != "flags" {
-		t.Errorf("selected = %q, want \"flags\"", entry.Name)
+	entry, ok := m.current().selected()
+	if !ok || entry.Name != "users" {
+		t.Errorf("selection after going back = %q, want \"users\"", entry.Name)
+	}
+	// The preview follows the cursor back out.
+	if m.preview.column == nil {
+		t.Fatal("no listing in the preview after going back")
+	}
+	if got := names(m.preview.column.items); !slices.Equal(got, []string{"user:001", "user:002"}) {
+		t.Errorf("preview after going back = %v, want the entries of users", got)
 	}
 }
 
-func TestAscendAtRootIsANoop(t *testing.T) {
+func TestAscendAtTheRootIsANoop(t *testing.T) {
 	t.Parallel()
 
-	m := newTestModel(t, newFakeStore())
+	m := newTestModel(t, newFakeTree())
 	m = pressType(t, m, tea.KeyEsc)
 
-	if len(m.levels) != 1 {
-		t.Errorf("levels = %d, want 1", len(m.levels))
+	if len(m.columns) != 1 {
+		t.Errorf("columns = %d, want 1", len(m.columns))
 	}
 }
 
-func TestPreviewShowsJSONValue(t *testing.T) {
+func TestPreviewShowsAJSONValue(t *testing.T) {
 	t.Parallel()
 
-	m := newTestModel(t, newFakeStore())
-	m = pressType(t, m, tea.KeyEnter) // into config
-	m = selectEntry(t, m, "version")
+	m := selectEntry(t, newTestModel(t, newFakeTree()), "users")
+	m = pressType(t, m, tea.KeyEnter)
+	m = selectEntry(t, m, "user:002")
 
-	want := []string{"{", `  "major": 1`, "}"}
-	if !slices.Equal(m.valueLines, want) {
-		t.Errorf("valueLines = %q, want %q", m.valueLines, want)
+	if m.preview.column != nil {
+		t.Error("preview holds a listing, want a value")
+	}
+	if got := texts(m.preview.lines); !slices.Equal(got, []string{"{", `  "id": 2`, "}"}) {
+		t.Errorf("preview = %q, want the value rendered", got)
 	}
 }
 
-func TestPreviewIsEmptyForNonJSON(t *testing.T) {
+func TestPreviewNotesAValueItCannotRead(t *testing.T) {
 	t.Parallel()
 
-	m := newTestModel(t, newFakeStore())
-	m = selectEntry(t, m, "users")
-	m = pressType(t, m, tea.KeyEnter) // into users
-	m = selectEntry(t, m, "user:002") // holds "not json"
+	m := selectEntry(t, newTestModel(t, newFakeTree()), "blobs")
+	m = pressType(t, m, tea.KeyEnter)
+	m = selectEntry(t, m, "raw")
 
-	if m.valueLines != nil {
-		t.Errorf("valueLines = %q, want none for a value that is not JSON", m.valueLines)
+	if m.preview.lines != nil {
+		t.Errorf("preview = %q, want no lines for a value we cannot read", texts(m.preview.lines))
 	}
-	if m.err != nil {
-		t.Errorf("err = %v, want nil: a non-JSON value is not an error", m.err)
+	if !strings.Contains(m.preview.note, "no format") {
+		t.Errorf("note = %q, want it to say the format is unreadable", m.preview.note)
+	}
+	if !strings.Contains(m.preview.note, "15 B") {
+		t.Errorf("note = %q, want the size of the value in it", m.preview.note)
 	}
 }
 
-func TestMovingCursorReloadsValue(t *testing.T) {
+func TestPreviewStopsAtTheReadLimit(t *testing.T) {
 	t.Parallel()
 
-	m := newTestModel(t, newFakeStore())
-	m = pressType(t, m, tea.KeyEnter) // into config, cursor on the flags bucket
-	m = press(t, m, "j")              // down to the version key
+	m := selectEntry(t, newTestModel(t, newFakeTree()), "blobs")
+	m = pressType(t, m, tea.KeyEnter)
+	m = selectEntry(t, m, "huge")
 
-	entry, _ := m.current().list.selected()
-	if entry.Name != "version" {
-		t.Fatalf("selected = %q, want \"version\"", entry.Name)
+	// The column reads a page of a long value, not the whole of it, and
+	// says so rather than pretending the format is at fault.
+	if !strings.Contains(m.preview.note, "too long") {
+		t.Errorf("note = %q, want it to say the value was cut short", m.preview.note)
 	}
-	want := []string{"{", `  "major": 1`, "}"}
-	if !slices.Equal(m.valueLines, want) {
-		t.Errorf("valueLines = %q, want %q", m.valueLines, want)
-	}
-
-	// Moving back onto a bucket empties the pane again.
-	m = press(t, m, "k")
-	if m.valueLines != nil {
-		t.Errorf("valueLines = %q, want none with a bucket selected", m.valueLines)
+	if !strings.Contains(m.preview.note, "KiB") {
+		t.Errorf("note = %q, want the size of the whole value in it", m.preview.note)
 	}
 }
 
-func TestValuePaneScrolls(t *testing.T) {
+func TestMovingTheCursorReloadsThePreview(t *testing.T) {
 	t.Parallel()
 
-	store := newFakeStore()
-	store.values["users/user:001"] = "[" + strings.Repeat("1,", 99) + "1]"
-	m := newTestModel(t, store)
-	m = selectEntry(t, m, "users")
-	m = pressType(t, m, tea.KeyEnter) // into users, cursor on user:001
+	m := selectEntry(t, newTestModel(t, newFakeTree()), "users")
+	m = pressType(t, m, tea.KeyEnter)
 
-	m = pressType(t, m, tea.KeyTab)
-	if m.focus != panePreview {
-		t.Fatalf("focus = %v, want panePreview", m.focus)
+	if got := texts(m.preview.lines); !slices.Equal(got, []string{"{", `  "id": 1`, "}"}) {
+		t.Fatalf("preview = %q, want the first value", got)
 	}
 	m = press(t, m, "j")
-
-	if m.valueOffset != 1 {
-		t.Errorf("valueOffset = %d, want 1", m.valueOffset)
-	}
-
-	m = press(t, m, "G")
-	if want := len(m.valueLines) - m.listHeight(); m.valueOffset != want {
-		t.Errorf("valueOffset after G = %d, want %d", m.valueOffset, want)
-	}
-
-	// With the preview focused the listing cursor stays put.
-	entry, _ := m.current().list.selected()
-	if entry.Name != "user:001" {
-		t.Errorf("selected = %q, want \"user:001\"", entry.Name)
+	if got := texts(m.preview.lines); !slices.Equal(got, []string{"{", `  "id": 2`, "}"}) {
+		t.Errorf("preview after moving = %q, want the second value", got)
 	}
 }
 
-func TestReloadKeepsPosition(t *testing.T) {
+func TestBrowsingClosesWhatItOpens(t *testing.T) {
 	t.Parallel()
 
-	store := newFakeStore()
-	m := newTestModel(t, store)
-	m = pressType(t, m, tea.KeyEnter) // into config
-	m = selectEntry(t, m, "version")
+	ft := newFakeTree()
+	m := newTestModel(t, ft)
 
-	m = press(t, m, "r")
+	// Walk down and back out again, passing over every entry on the
+	// way, so every listing the browser opens is one it has to close.
+	m = selectEntry(t, m, "config")
+	m = pressType(t, m, tea.KeyEnter)
+	m = press(t, m, "j")
+	m = pressType(t, m, tea.KeyEsc)
+	m = selectEntry(t, m, "users")
+	m = pressType(t, m, tea.KeyEnter)
+	m = pressType(t, m, tea.KeyEsc)
 
-	if !slices.Equal(m.path(), []string{"config"}) {
-		t.Fatalf("path after reload = %v, want [config]", m.path())
+	// One column for the root and one listing in the preview.
+	if ft.open != 2 {
+		t.Errorf("listings left open while browsing = %d, want 2", ft.open)
 	}
-	entry, _ := m.current().list.selected()
-	if entry.Name != "version" {
-		t.Errorf("selected after reload = %q, want \"version\"", entry.Name)
+	m.Close()
+	if ft.open != 0 {
+		t.Errorf("listings left open after Close = %d, want none", ft.open)
 	}
 }
 
-func TestReloadDropsVanishedBucket(t *testing.T) {
+func TestFocusScrollsAValue(t *testing.T) {
 	t.Parallel()
 
-	fs := newFakeStore()
-	m := newTestModel(t, fs)
-	m = pressType(t, m, tea.KeyEnter) // into config
-	m = pressType(t, m, tea.KeyEnter) // into config/flags
+	ft := newFakeTree()
+	// A value taller than the column, which is what the focus is for.
+	ft.nodes["tall"] = []tree.Entry{{Name: "value", Kind: tree.Leaf}}
+	ft.nodes[""] = append(ft.nodes[""], tree.Entry{Name: "tall", Kind: tree.Node})
+	ft.values["tall/value"] = []byte(`{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6}`)
 
-	// The sub-bucket disappears underneath the UI.
-	fs.entries["config"] = []store.Entry{{Name: "version"}}
-	m = press(t, m, "r")
+	m := newTestModel(t, ft)
+	m = selectEntry(t, m, "tall")
+	m = pressType(t, m, tea.KeyEnter)
 
-	if !slices.Equal(m.path(), []string{"config"}) {
-		t.Errorf("path after the bucket vanished = %v, want [config]", m.path())
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 12})
+	m, ok := updated.(Model)
+	if !ok {
+		t.Fatalf("Update returned %T, want ui.Model", updated)
+	}
+
+	m = pressType(t, m, tea.KeyTab)
+	if m.focus != focusValue {
+		t.Fatalf("focus = %v, want the value", m.focus)
+	}
+	m = press(t, m, "j")
+	if m.preview.offset != 1 {
+		t.Errorf("offset after scrolling = %d, want 1", m.preview.offset)
+	}
+	// The cursor of the listing did not move with it.
+	if entry, _ := m.current().selected(); entry.Name != "value" {
+		t.Errorf("selection = %q, want it unmoved", entry.Name)
+	}
+
+	m = pressType(t, m, tea.KeyTab)
+	if m.focus != focusListing {
+		t.Errorf("focus = %v, want the listing", m.focus)
 	}
 }
 
-func TestStoreErrorIsShownNotFatal(t *testing.T) {
+func TestFocusStaysOnTheListingWithoutAValue(t *testing.T) {
 	t.Parallel()
 
-	store := newFakeStore()
-	m := newTestModel(t, store)
+	// The cursor is on a bucket, so there is nothing in the preview to
+	// scroll and the focus has nowhere to go.
+	m := newTestModel(t, newFakeTree())
+	m = pressType(t, m, tea.KeyTab)
 
-	store.err = errors.New("database gone")
-	m = press(t, m, "r")
-
-	if m.err == nil {
-		t.Fatal("reload with a failing store left err nil")
+	if m.focus != focusListing {
+		t.Errorf("focus = %v, want the listing", m.focus)
 	}
-	if !strings.Contains(m.View(), "database gone") {
-		t.Error("View does not show the store error")
+}
+
+func TestErrorIsShownNotFatal(t *testing.T) {
+	t.Parallel()
+
+	ft := newFakeTree()
+	broken := errors.New("bucket is on fire")
+	ft.fail(tree.Path{"blobs"}, broken)
+
+	m := newTestModel(t, ft)
+
+	// The cursor starts on blobs, whose preview cannot be opened.
+	if !errors.Is(m.err, broken) {
+		t.Errorf("err = %v, want the failure of the preview", m.err)
+	}
+	if !strings.Contains(ansi.Strip(m.View()), "on fire") {
+		t.Error("the view does not show the error")
+	}
+	// Moving off it clears the error and the browser carries on.
+	m = press(t, m, "j")
+	if m.err != nil {
+		t.Errorf("err after moving on = %v, want none", m.err)
+	}
+}
+
+func TestNewFailsOnARootThatWillNotOpen(t *testing.T) {
+	t.Parallel()
+
+	ft := newFakeTree()
+	ft.fail(nil, errors.New("no such database"))
+
+	if _, err := New(ft, "testdata/test.db"); err == nil {
+		t.Error("New over a tree with no root returned no error")
+	}
+}
+
+func TestUnprintableNamesAreMadeSafe(t *testing.T) {
+	t.Parallel()
+
+	// A bbolt key is any byte string, so a listing may hold one that
+	// would wreck the screen if it were written out as it is.
+	ft := newFakeTree()
+	ft.nodes[""] = []tree.Entry{{Name: "a\nb\x1b[31m\xff", Kind: tree.Leaf}}
+	ft.values["a\nb\x1b[31m\xff"] = []byte("1")
+
+	view := ansi.Strip(newTestModel(t, ft).View())
+
+	if strings.Contains(view, "\x1b[31m") {
+		t.Error("the view carries an escape sequence out of a key")
+	}
+	if lines := strings.Split(view, "\n"); len(lines) != 24 {
+		t.Errorf("view height = %d lines, want 24: a newline in a key broke the layout", len(lines))
 	}
 }
 
 func TestQuit(t *testing.T) {
 	t.Parallel()
 
-	m := newTestModel(t, newFakeStore())
+	m := newTestModel(t, newFakeTree())
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
 	if cmd == nil {
 		t.Fatal("q returned no command, want tea.Quit")
@@ -367,7 +406,7 @@ func TestQuit(t *testing.T) {
 func TestViewLayout(t *testing.T) {
 	t.Parallel()
 
-	m := newTestModel(t, newFakeStore())
+	m := newTestModel(t, newFakeTree())
 	view := m.View()
 
 	lines := strings.Split(view, "\n")
@@ -380,8 +419,8 @@ func TestViewLayout(t *testing.T) {
 		}
 	}
 	// The header names the program, the open bucket and the file, the
-	// panes list the root buckets — marked with a trailing slash — and the footer the
-	// shortcuts.
+	// columns list the root buckets — marked with a trailing slash — and
+	// the footer the shortcuts.
 	for _, want := range []string{"boltcutter", "bucket:", "db:", "testdata/test.db", "config/", "users/", "quit"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view does not contain %q", want)
@@ -389,46 +428,94 @@ func TestViewLayout(t *testing.T) {
 	}
 }
 
-func TestRootListingStaysInTheLeftPane(t *testing.T) {
+func TestColumnsFillFromTheLeft(t *testing.T) {
 	t.Parallel()
 
-	m := newTestModel(t, newFakeStore())
-	root := paneLines(t, m.View(), paneParent)
-	if want := []string{"› config/", "users/"}; !slices.Equal(root, want) {
-		t.Fatalf("left pane at the root = %q, want %q", root, want)
-	}
+	// At the root there is no parent, so the listing takes the
+	// leftmost column, its preview sits right beside it, and the one
+	// left empty is the rightmost.
+	m := newTestModel(t, newFakeTree())
 
-	m = pressType(t, m, tea.KeyEnter) // into config
-	m = pressType(t, m, tea.KeyEsc)   // and back out
-
-	// Coming back to the root must not push the listing one pane to the
-	// right; it stays where it was, cursor and all.
-	if got := paneLines(t, m.View(), paneParent); !slices.Equal(got, root) {
-		t.Errorf("left pane after going back = %q, want %q", got, root)
+	root := []string{"› blobs/", "config/"}
+	if got := columnLines(t, m.View(), columnLeft); !slices.Equal(got, root) {
+		t.Errorf("left column at the root = %q, want the root listing %q", got, root)
 	}
-	if got := paneLines(t, m.View(), paneCurrent); !slices.Equal(got, []string{"", ""}) {
-		t.Errorf("middle pane after going back = %q, want it empty", got)
+	if got := columnLines(t, m.View(), columnMiddle); !slices.Equal(got, []string{"huge", "raw"}) {
+		t.Errorf("middle column at the root = %q, want the preview of blobs", got)
+	}
+	if got := columnLines(t, m.View(), columnRight); !slices.Equal(got, []string{"", ""}) {
+		t.Errorf("right column at the root = %q, want it empty", got)
 	}
 }
 
-// paneLines returns the first two content lines of one pane of a rendered
-// view, without their border, padding or styling.
-func paneLines(t *testing.T, view string, p pane) []string {
+func TestColumnsShiftAlongWhenDescending(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(t, newFakeTree())
+	m = selectEntry(t, m, "config")
+	m = pressType(t, m, tea.KeyEnter)
+
+	// One level down every column is in use: the parent we came through,
+	// the listing we are in, and the preview of what the cursor is on.
+	if got := columnLines(t, m.View(), columnLeft); !slices.Equal(got, []string{"blobs/", "› config/"}) {
+		t.Errorf("left column = %q, want the root listing", got)
+	}
+	if got := columnLines(t, m.View(), columnMiddle); !slices.Equal(got, []string{"› flags/", "version"}) {
+		t.Errorf("middle column = %q, want the entries of config", got)
+	}
+	if got := columnLines(t, m.View(), columnRight); !slices.Equal(got, []string{"beta", ""}) {
+		t.Errorf("right column = %q, want the preview of flags", got)
+	}
+
+	// And back out again: the root listing returns to the leftmost
+	// column rather than staying where it was pushed.
+	m = pressType(t, m, tea.KeyEsc)
+	if got := columnLines(t, m.View(), columnLeft); !slices.Equal(got, []string{"blobs/", "› config/"}) {
+		t.Errorf("left column after going back = %q, want the root listing", got)
+	}
+	if got := columnLines(t, m.View(), columnRight); !slices.Equal(got, []string{"", ""}) {
+		t.Errorf("right column after going back = %q, want it empty", got)
+	}
+}
+
+func TestPreviewCarriesNoCursorMark(t *testing.T) {
+	t.Parallel()
+
+	// The preview is a listing nobody is in, so it carries no cursor
+	// mark: the mark belongs to the column the keys are moving.
+	m := newTestModel(t, newFakeTree())
+
+	if got := columnLines(t, m.View(), columnMiddle); !slices.Equal(got, []string{"huge", "raw"}) {
+		t.Errorf("preview column = %q, want the entries of blobs, unmarked", got)
+	}
+}
+
+// The three columns by where they sit, left to right. Only the tests
+// name a position: the browser fills the columns from the left and
+// never has to say which one it is drawing into.
+const (
+	columnLeft = iota
+	columnMiddle
+	columnRight
+)
+
+// columnLines returns the first two content lines of one column of a
+// rendered view, without its border, padding or styling.
+func columnLines(t *testing.T, view string, column int) []string {
 	t.Helper()
 
-	widths := [paneCount]int{}
-	copy(widths[:], []int{25, 25, 50})
+	widths := [columnCount]int{25, 25, 50}
 
 	start := 0
-	for i := paneParent; i < p; i++ {
+	for i := columnLeft; i < column; i++ {
 		start += widths[i]
 	}
 
 	var out []string
-	// Skip the header and the top border of the panes.
+	// Skip the header and the top border of the columns.
 	for _, line := range strings.Split(view, "\n")[headerHeight+1:][:2] {
 		runes := []rune(ansi.Strip(line))
-		out = append(out, strings.TrimSpace(string(runes[start+2:start+widths[p]-2])))
+		out = append(out, strings.TrimSpace(string(runes[start+2:start+widths[column]-2])))
 	}
 
 	return out
@@ -437,29 +524,29 @@ func paneLines(t *testing.T, view string, p pane) []string {
 func TestLayoutIsFixed(t *testing.T) {
 	t.Parallel()
 
-	m := newTestModel(t, newFakeStore())
+	m := newTestModel(t, newFakeTree())
 
-	// Three panes at the root, and the same three, at the same widths,
+	// Three columns at the root, and the same three, at the same widths,
 	// after diving: the columns shift but nothing resizes.
-	root := columnWidths(t, m.View())
+	root := measureColumns(t, m.View())
 	if len(root) != 3 {
 		t.Fatalf("columns at the root = %d, want 3", len(root))
 	}
 
 	m = pressType(t, m, tea.KeyEnter)
 
-	if dived := columnWidths(t, m.View()); !slices.Equal(dived, root) {
+	if dived := measureColumns(t, m.View()); !slices.Equal(dived, root) {
 		t.Errorf("columns after diving = %v, want %v", dived, root)
 	}
 }
 
-// columnWidths measures the panes of a rendered view by splitting the top
+// measureColumns measures the columns of a rendered view by splitting the top
 // border line at the corners.
-func columnWidths(t *testing.T, view string) []int {
+func measureColumns(t *testing.T, view string) []int {
 	t.Helper()
 
 	lines := strings.Split(view, "\n")
-	top := lines[headerHeight] // the header sits above the panes.
+	top := lines[headerHeight] // the header sits above the columns.
 	var widths []int
 	for _, column := range strings.SplitAfter(top, "╮") {
 		if column == "" {
@@ -474,15 +561,16 @@ func columnWidths(t *testing.T, view string) []int {
 func TestHeaderShowsPathOfOpenBucket(t *testing.T) {
 	t.Parallel()
 
-	m := newTestModel(t, newFakeStore())
-	if got := header(m.View()); !strings.Contains(got, "/") {
-		t.Errorf("header at the root = %q, want the root path in it", got)
+	m := newTestModel(t, newFakeTree())
+	if got := header(m.View()); !strings.Contains(got, "bucket:") {
+		t.Errorf("header at the root = %q, want the bucket label in it", got)
 	}
 
-	m = pressType(t, m, tea.KeyEnter) // into config
+	m = selectEntry(t, m, "config")
+	m = pressType(t, m, tea.KeyEnter)
 
 	got := header(m.View())
-	if !strings.Contains(got, "/config") {
+	if !strings.Contains(got, "config") {
 		t.Errorf("header = %q, want the open bucket in it", got)
 	}
 	if !strings.Contains(got, "boltcutter") || !strings.Contains(got, "testdata/test.db") {
@@ -493,14 +581,19 @@ func TestHeaderShowsPathOfOpenBucket(t *testing.T) {
 func TestHeaderDropsPathWhenNarrow(t *testing.T) {
 	t.Parallel()
 
-	updated, _ := New(newFakeStore(), "/very/long/path/to/a/database/file.db").
-		Update(tea.WindowSizeMsg{Width: 40, Height: 24})
-	m, ok := updated.(Model)
+	m, err := New(newFakeTree(), "/very/long/path/to/a/database/file.db")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(m.Close)
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
+	narrow, ok := updated.(Model)
 	if !ok {
 		t.Fatalf("Update returned %T, want ui.Model", updated)
 	}
 
-	got := header(m.View())
+	got := header(narrow.View())
 	if lipgloss.Width(got) != 40 {
 		t.Errorf("header width = %d, want 40", lipgloss.Width(got))
 	}
@@ -522,7 +615,13 @@ func header(view string) string {
 func TestViewBeforeWindowSize(t *testing.T) {
 	t.Parallel()
 
-	if got := New(newFakeStore(), "testdata/test.db").View(); got != "" {
+	m, err := New(newFakeTree(), "testdata/test.db")
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(m.Close)
+
+	if got := m.View(); got != "" {
 		t.Errorf("View before the first WindowSizeMsg = %q, want empty", got)
 	}
 }

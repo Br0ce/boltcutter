@@ -3,74 +3,66 @@ package ui
 import (
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/Br0ce/boltcutter/store"
+	"github.com/Br0ce/boltcutter/tree"
 )
 
-// pane identifies one of the three columns.
-type pane int
+var _ tea.Model = Model{}
+
+// focus says what the keys move: the cursor of the current listing, or
+// the viewport of a value too tall for the column showing it.
+type focus int
 
 const (
-	// paneParent shows the bucket the current listing sits in. It is
-	// empty at the database root.
-	paneParent pane = iota
-	// paneCurrent shows the bucket that is open, and holds the cursor.
-	paneCurrent
-	// panePreview is reserved for the JSON value of the selected key.
-	panePreview
-
-	paneCount = 3
+	focusListing focus = iota
+	focusValue
 )
 
-// Layout constants. The two left columns are sized as a share of the
+// Layout constants. The two listing columns are sized as a share of the
 // terminal width so the preview keeps the room it needs on wide screens.
 const (
-	sidePaneRatio = 4 // the parent and current columns take a quarter each.
-	minPaneWidth  = 12
-	minPaneHeight = 3
-	// The header and the footer are boxed like the panes, so each takes
-	// a line of content plus its border.
-	headerHeight = 1 + paneBorder
-	footerHeight = 1 + paneBorder
-	// paneBorder and panePadding are the width and height the border
-	// and the padding of a pane add on top of its content.
-	paneBorder  = 2
-	panePadding = 2
+	// columnCount is how many columns are drawn, however deep the
+	// browser is. They are filled from the left, so which of them
+	// holds what changes but their number does not.
+	columnCount = 3
+
+	sideColumnRatio = 4 // the two listing columns take a quarter each.
+	minColumnWidth  = 12
+	minColumnHeight = 3
+
+	// The header and the footer are framed like a column, so each
+	// takes a line of content plus its border.
+	headerHeight = 1 + boxBorder
+	footerHeight = 1 + boxBorder
+	// boxBorder and boxPadding are the width and height the border and
+	// the padding add on top of the content of a framed box. The
+	// columns, the header and the footer are each drawn in one.
+	boxBorder  = 2
+	boxPadding = 2
 )
 
-// level is one bucket listing on the way down from the root.
-type level struct {
-	// path names the bucket this listing belongs to; empty for the
-	// database root.
-	path []string
-	list list
-}
-
-// Model is the bubbletea model of the browser. It keeps every listing
-// from the root down to the bucket that is open, and shows the last two
-// of them next to the value of the selected key.
+// Model is the bubbletea model of the browser. It keeps one column per
+// level from the root down to the node that is open, and shows the last
+// two of them beside a preview of what the cursor is on.
 type Model struct {
-	store  Store
+	tree   tree.Tree
 	styles styles
 	// dbPath is the database file being browsed, shown in the header.
 	dbPath string
 
-	// levels is never empty: levels[0] is the database root and the
-	// last element is the listing the cursor is in.
-	levels []level
+	// columns is never empty: columns[0] lists the database root and
+	// the last one holds the cursor.
+	columns []*column
 
-	// valueLines is the rendered value of the selected key, empty
-	// whenever the cursor is on a bucket.
-	valueLines  []string
-	valueOffset int
+	preview preview
 
-	focus  pane
+	focus  focus
 	width  int
 	height int
 	err    error
 }
 
-// Init satisfies tea.Model. The first listing is already loaded by New,
-// so there is nothing to do before the first frame.
+// Init satisfies tea.Model. The first columns are already open, so
+// there is nothing to do before the first frame.
 func (m Model) Init() tea.Cmd {
 	return nil
 }
@@ -90,7 +82,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-//nolint:gocyclo // A flat switch over key bindings reads better than a dispatch table.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case keyMatches(msg, keyQuit):
@@ -122,194 +113,197 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case keyMatches(msg, keyBack):
 		m.ascend()
-
-	case keyMatches(msg, keyReload):
-		m.reload()
 	}
 
 	return m, nil
 }
 
-// current is the listing the cursor is in.
-func (m *Model) current() *level {
-	return &m.levels[len(m.levels)-1]
+// current is the column the cursor is in.
+func (m Model) current() *column {
+	return m.columns[len(m.columns)-1]
 }
 
-// path is the bucket that is currently open.
-func (m Model) path() []string {
-	return m.levels[len(m.levels)-1].path
+// path names the node that is open.
+func (m Model) path() tree.Path {
+	return m.current().path
+}
+
+// descend opens the node under the cursor. Its listing is already in
+// the preview column, so descending shifts the columns along and reads
+// nothing a second time. With a leaf under the cursor there is no
+// listing to take, and the selection is left alone.
+func (m *Model) descend() {
+	if m.preview.column == nil {
+		return
+	}
+	m.columns = append(m.columns, m.preview.column)
+	// The column has moved into the browser and is no longer the
+	// preview's to close.
+	m.preview.column = nil
+	m.focus = focusListing
+	m.loadPreview()
+}
+
+// ascend leaves the current node for the one holding it. The parent's
+// cursor never left the entry we descended through, so the cursor lands
+// where it started.
+func (m *Model) ascend() {
+	if len(m.columns) == 1 {
+		return
+	}
+	m.closeColumn(m.current())
+	m.columns = m.columns[:len(m.columns)-1]
+	m.focus = focusListing
+	m.loadPreview()
 }
 
 // toggleFocus switches between moving the cursor and scrolling a value
-// too tall for the preview pane.
+// too tall for the preview column. There is nothing to scroll unless
+// the preview is holding a value.
 func (m *Model) toggleFocus() {
-	if m.focus == paneCurrent {
-		m.focus = panePreview
+	if m.focus == focusListing && len(m.preview.lines) > 0 {
+		m.focus = focusValue
 
 		return
 	}
-	m.focus = paneCurrent
+	m.focus = focusListing
 }
 
-// scroll moves the cursor of the current listing, or the preview
+// scroll moves the cursor of the current column, or the preview
 // viewport, by delta lines.
 func (m *Model) scroll(delta int) {
-	if m.focus == panePreview {
-		m.valueOffset = clampOffset(m.valueOffset+delta, len(m.valueLines), m.listHeight())
+	if m.focus == focusValue {
+		m.preview.offset = clampOffset(m.preview.offset+delta, len(m.preview.lines), m.listHeight())
 
 		return
 	}
-	m.current().list.move(delta)
-	m.loadValue()
+	m.current().move(delta)
+	m.loadPreview()
 }
 
 func (m *Model) scrollToStart() {
-	if m.focus == panePreview {
-		m.valueOffset = 0
+	if m.focus == focusValue {
+		m.preview.offset = 0
 
 		return
 	}
-	m.current().list.setCursor(0)
-	m.loadValue()
+	m.current().top()
+	m.loadPreview()
 }
 
 func (m *Model) scrollToEnd() {
-	if m.focus == panePreview {
-		m.valueOffset = clampOffset(len(m.valueLines), len(m.valueLines), m.listHeight())
+	if m.focus == focusValue {
+		m.preview.offset = clampOffset(len(m.preview.lines), len(m.preview.lines), m.listHeight())
 
 		return
 	}
-	m.current().list.setCursor(len(m.current().list.items) - 1)
-	m.loadValue()
+	m.current().bottom()
+	m.loadPreview()
 }
 
-// descend opens the selected bucket, shifting the columns one to the
-// left. Keys cannot be descended into, so the selection is left alone.
-func (m *Model) descend() {
-	entry, ok := m.current().list.selected()
-	if !ok || !entry.Bucket {
-		return
-	}
-	path := append(append([]string{}, m.path()...), entry.Name)
-	entries, err := m.store.Entries(path)
-	if err != nil {
-		m.err = err
-
-		return
-	}
+// loadPreview fills the preview column from the entry under the
+// cursor: the listing of a node, or the value of a leaf. It is the one
+// place in the program that asks what an entry is.
+func (m *Model) loadPreview() {
+	m.closePreview()
 	m.err = nil
-	next := level{path: path}
-	next.list.setHeight(m.listHeight())
-	next.list.setItems(entries)
-	m.levels = append(m.levels, next)
-	m.focus = paneCurrent
-	m.loadValue()
-}
 
-// ascend leaves the current bucket for its parent, shifting the columns
-// one to the right. The parent's cursor still sits on the bucket that was
-// left, so the cursor lands where it started.
-func (m *Model) ascend() {
-	if len(m.levels) == 1 {
+	entry, ok := m.current().selected()
+	if !ok {
 		return
 	}
-	m.levels = m.levels[:len(m.levels)-1]
-	m.focus = paneCurrent
-	m.loadValue()
-}
+	path := m.path().Child(entry.Name)
 
-// reload re-reads every open listing from the store, keeping the cursors
-// on the entries they were on. Buckets that disappeared underneath the UI
-// drop the levels below them. Errors are shown rather than fatal, so a
-// database that changes stays browsable.
-func (m *Model) reload() {
-	// Remember where the cursors were, by name, before re-reading.
-	path := m.path()
-	selected := ""
-	if entry, ok := m.current().list.selected(); ok {
-		selected = entry.Name
-	}
-
-	levels := make([]level, 0, len(m.levels))
-	for i := 0; i <= len(path); i++ {
-		if i > 0 && !containsBucket(levels[i-1].list.items, path[i-1]) {
-			// The bucket vanished underneath us; stop at its parent.
-			break
-		}
-		entries, err := m.store.Entries(path[:i])
+	switch entry.Kind {
+	case tree.Node:
+		column, err := newColumn(m.tree, path, m.listHeight())
 		if err != nil {
 			m.err = err
 
 			return
 		}
-		next := level{path: path[:i]}
-		next.list.setHeight(m.listHeight())
-		next.list.setItems(entries)
-		if i < len(path) {
-			next.list.setCursor(indexOf(entries, path[i]))
+		m.preview.column = column
+
+	case tree.Leaf:
+		raw, size, err := m.tree.Read(path, previewLimit)
+		if err != nil {
+			m.err = err
+
+			return
 		}
-		levels = append(levels, next)
+		m.preview.setValue(raw, size)
 	}
-	m.err = nil
-	m.levels = levels
-	m.current().list.setCursor(indexOf(m.current().list.items, selected))
-	m.loadValue()
+
+	// The focus belongs on the listing unless there is a value under
+	// it to scroll.
+	if len(m.preview.lines) == 0 {
+		m.focus = focusListing
+	}
 }
 
-// loadValue fills the preview pane with the value of the selected key.
-// The pane is reserved for values, so a bucket under the cursor leaves it
-// empty.
-func (m *Model) loadValue() {
-	m.valueLines, m.valueOffset = nil, 0
-
-	entry, ok := m.current().list.selected()
-	if !ok || entry.Bucket {
-		return
-	}
-
-	value, err := m.store.Value(m.path(), entry.Name)
-	if err != nil {
+// closePreview empties the preview column, releasing the listing it may
+// have been holding.
+func (m *Model) closePreview() {
+	if err := m.preview.close(); err != nil {
 		m.err = err
-
-		return
 	}
-	m.err, m.valueLines = nil, formatValue(value)
+	m.preview = preview{}
 }
 
-// resize propagates the terminal size to the listings.
+// closeColumn releases a column, reporting a failure rather than
+// swallowing it: a listing that will not close is a leak we would
+// rather hear about.
+func (m *Model) closeColumn(c *column) {
+	if err := c.Close(); err != nil {
+		m.err = err
+	}
+}
+
+// Close releases every listing the browser holds. The Model is of no
+// further use afterwards.
+func (m *Model) Close() {
+	m.closePreview()
+	for _, column := range m.columns {
+		m.closeColumn(column)
+	}
+	m.columns = nil
+}
+
+// resize propagates the terminal size to the columns.
 func (m *Model) resize() {
 	height := m.listHeight()
-	for i := range m.levels {
-		m.levels[i].list.setHeight(height)
+	for _, column := range m.columns {
+		column.setHeight(height)
 	}
-	m.valueOffset = clampOffset(m.valueOffset, len(m.valueLines), height)
+	m.preview.column.setHeight(height)
+	m.preview.offset = clampOffset(m.preview.offset, len(m.preview.lines), height)
 }
 
-// paneHeight is the outer height of a pane, i.e. what is left between the
-// header and the footer.
-func (m Model) paneHeight() int {
-	return max(m.height-headerHeight-footerHeight, minPaneHeight)
+// columnHeight is the outer height of a column, i.e. what is left
+// between the header and the footer.
+func (m Model) columnHeight() int {
+	return max(m.height-headerHeight-footerHeight, minColumnHeight)
 }
 
-// listHeight is how many item lines fit inside a pane.
+// listHeight is how many item lines fit inside a column.
 func (m Model) listHeight() int {
-	return max(m.paneHeight()-paneBorder, 1)
+	return max(m.columnHeight()-boxBorder, 1)
 }
 
-// hasParent reports whether we have dived into a bucket, so the parent
-// column has a listing to show.
+// hasParent reports whether we have dived into a node, so there is a
+// parent listing to show alongside the current one.
 func (m Model) hasParent() bool {
-	return len(m.levels) > 1
+	return len(m.columns) > 1
 }
 
-// paneWidths returns the outer widths of the three panes, left to right.
-// They never change as the columns shift, so nothing jumps around while
-// browsing.
-func (m Model) paneWidths() [paneCount]int {
-	side := max(m.width/sidePaneRatio, minPaneWidth)
-	preview := max(m.width-2*side, minPaneWidth)
+// columnWidths returns the outer widths of the three columns, left to
+// right. They never change as the columns shift, so nothing jumps
+// around while browsing.
+func (m Model) columnWidths() [columnCount]int {
+	side := max(m.width/sideColumnRatio, minColumnWidth)
+	preview := max(m.width-2*side, minColumnWidth)
 
-	return [paneCount]int{side, side, preview}
+	return [columnCount]int{side, side, preview}
 }
 
 // clampOffset keeps a viewport offset within a document of n lines shown
@@ -317,28 +311,3 @@ func (m Model) paneWidths() [paneCount]int {
 func clampOffset(offset, n, height int) int {
 	return min(max(offset, 0), max(n-height, 0))
 }
-
-// indexOf returns the position of the entry named name, or 0 if it is
-// absent.
-func indexOf(entries []store.Entry, name string) int {
-	for i, entry := range entries {
-		if entry.Name == name {
-			return i
-		}
-	}
-
-	return 0
-}
-
-// containsBucket reports whether entries hold a nested bucket named name.
-func containsBucket(entries []store.Entry, name string) bool {
-	for _, entry := range entries {
-		if entry.Name == name && entry.Bucket {
-			return true
-		}
-	}
-
-	return false
-}
-
-var _ tea.Model = Model{}

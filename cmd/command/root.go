@@ -42,7 +42,16 @@ database without writing ad-hoc scripts to peek inside.`,
 			}
 			defer db.Close()
 
-			return ui.Run(store.New(db), path)
+			// The store holds a read transaction open for as long as
+			// it lives, and the database cannot be closed under one,
+			// so it is closed first.
+			st, err := store.New(db)
+			if err != nil {
+				return fmt.Errorf("read database %q: %w", path, err)
+			}
+			defer st.Close()
+
+			return ui.Run(st, path)
 		},
 	}
 )

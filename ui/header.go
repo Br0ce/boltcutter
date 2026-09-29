@@ -17,17 +17,17 @@ const (
 	dbLabel     = "db"
 )
 
-// header renders the bar above the panes: the program name and the bucket
+// header renders the bar above the columns: the program name and the bucket
 // that is open on the left, the database file on the right. The file
 // gives way first when the terminal is too narrow for both.
 func (m Model) header() string {
 	// The header style adds a border and a column of padding on either
 	// side of its content.
-	width := max(m.width-paneBorder-panePadding, 0)
+	width := max(m.width-boxBorder-boxPadding, 0)
 
 	left := m.styles.appName.Render(appName) + "  " +
 		m.styles.label.Render(bucketLabel+":") + " " +
-		m.styles.crumb.Render(path.Join(m.path()...))
+		m.styles.crumb.Render(printable(path.Join(m.path()...)))
 
 	// Whatever room the breadcrumb leaves goes to the database file,
 	// which is truncated from the right to fit.
@@ -40,6 +40,6 @@ func (m Model) header() string {
 	gap := max(width-lipgloss.Width(left)-lipgloss.Width(right), 0)
 
 	return m.styles.header.
-		Width(max(m.width-paneBorder, 0)).
+		Width(max(m.width-boxBorder, 0)).
 		Render(left + strings.Repeat(" ", gap) + right)
 }

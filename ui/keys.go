@@ -25,12 +25,11 @@ var (
 	keyBottom   = binding{keys: []string{"end", "G"}, label: "G", help: "bottom"}
 	keyOpen     = binding{keys: []string{"enter", "right", "l"}, label: "enter/→", help: "open bucket"}
 	keyBack     = binding{keys: []string{"esc", "backspace", "left", "h"}, label: "esc/←", help: "back"}
-	keyReload   = binding{keys: []string{"r"}, label: "r", help: "reload"}
 )
 
 // footerBindings lists the shortcuts of the footer, in display order.
 var footerBindings = []binding{
-	keyUp, keyDown, keyOpen, keyBack, keyFocus, keyReload, keyQuit,
+	keyUp, keyDown, keyOpen, keyBack, keyFocus, keyQuit,
 }
 
 // keyMatches reports whether msg triggers b.
@@ -62,12 +61,12 @@ func (m Model) footer() string {
 		}
 		// The footer style adds a border and a column of padding on
 		// each side.
-		if next > m.width-paneBorder-panePadding {
+		if next > m.width-boxBorder-boxPadding {
 			break
 		}
 		parts = append(parts, part)
 		width = next
 	}
 
-	return m.styles.footer.Width(max(m.width-paneBorder, 0)).Render(strings.Join(parts, separator))
+	return m.styles.footer.Width(max(m.width-boxBorder, 0)).Render(strings.Join(parts, separator))
 }
