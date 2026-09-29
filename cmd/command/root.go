@@ -51,10 +51,23 @@ database without writing ad-hoc scripts to peek inside.`,
 			}
 			defer st.Close()
 
-			return ui.Run(st, path)
+			return ui.Run(st, ui.DB{Path: path, Size: fileSize(path)})
 		},
 	}
 )
+
+// fileSize is the length of the database file in bytes, and -1 when
+// the file cannot be measured. A size missing from the header is
+// worth more than a wrong one, and is no reason not to open a
+// database we have already read.
+func fileSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return -1
+	}
+
+	return info.Size()
+}
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {

@@ -35,7 +35,7 @@ const (
 )
 
 // View renders the header, the three columns side by side, and the
-// shortcut bar.
+// shortcuts along the foot.
 func (m Model) View() string {
 	if m.width == 0 || m.height == 0 {
 		// The first frame arrives before the terminal size does.
@@ -228,6 +228,27 @@ func truncate(s string, width int) string {
 
 	// The ellipsis takes a cell of its own.
 	return trim(s, width-1) + ellipsis
+}
+
+// truncateLeft shortens s to at most width cells by cutting from the
+// left rather than the right, marking the cut with an ellipsis. It is
+// how a file path is shortened: the name at the end of one is what
+// tells two databases apart, and the directories above it are not.
+func truncateLeft(s string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= width {
+		return s
+	}
+
+	// The ellipsis takes a cell of its own.
+	runes := []rune(s)
+	for len(runes) > 0 && lipgloss.Width(string(runes)) > width-1 {
+		runes = runes[1:]
+	}
+
+	return ellipsis + string(runes)
 }
 
 // trim shortens s to at most width cells, cutting it without a mark.

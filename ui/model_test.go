@@ -14,12 +14,15 @@ import (
 	"github.com/Br0ce/boltcutter/value"
 )
 
+// testDB is the database the tests say they are browsing.
+var testDB = DB{Path: "testdata/test.db", Size: 4 * 1024 * 1024}
+
 // newTestModel returns a model sized to a terminal large enough that
 // nothing scrolls, and closes it with the test.
 func newTestModel(t *testing.T, ft *fakeTree) Model {
 	t.Helper()
 
-	m, err := New(ft, "testdata/test.db")
+	m, err := New(ft, testDB)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -293,7 +296,8 @@ func TestFocusScrollsAValue(t *testing.T) {
 	// A value taller than the column, which is what the focus is for.
 	ft.nodes["tall"] = []tree.Entry{{Name: "value", Kind: tree.Leaf}}
 	ft.nodes[""] = append(ft.nodes[""], tree.Entry{Name: "tall", Kind: tree.Node})
-	ft.values["tall/value"] = []byte(`{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6}`)
+	ft.values["tall/value"] = []byte(
+		`{"a":1,"b":2,"c":3,"d":4,"e":5,"f":6,"g":7,"h":8,"i":9,"j":10,"k":11,"l":12}`)
 
 	m := newTestModel(t, ft)
 	m = selectEntry(t, m, "tall")
@@ -366,7 +370,7 @@ func TestNewFailsOnARootThatWillNotOpen(t *testing.T) {
 	ft := newFakeTree()
 	ft.fail(nil, errors.New("no such database"))
 
-	if _, err := New(ft, "testdata/test.db"); err == nil {
+	if _, err := New(ft, testDB); err == nil {
 		t.Error("New over a tree with no root returned no error")
 	}
 }
@@ -418,10 +422,10 @@ func TestViewLayout(t *testing.T) {
 			t.Errorf("line %d width = %d, want 100", i, got)
 		}
 	}
-	// The header names the program, the open bucket and the file, the
-	// columns list the root buckets — marked with a trailing slash — and
-	// the footer the shortcuts.
-	for _, want := range []string{"boltcutter", "bucket:", "db:", "testdata/test.db", "config/", "users/", "quit"} {
+	// The header names the open bucket, the file and its size, the
+	// footer the shortcuts, and the columns list the root buckets,
+	// marked with a trailing slash.
+	for _, want := range []string{bucketLabel, dbLabel, testDB.Path, "4.0 MiB", "config/", "users/", "quit"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view does not contain %q", want)
 		}
@@ -490,15 +494,6 @@ func TestPreviewCarriesNoCursorMark(t *testing.T) {
 	}
 }
 
-// The three columns by where they sit, left to right. Only the tests
-// name a position: the browser fills the columns from the left and
-// never has to say which one it is drawing into.
-const (
-	columnLeft = iota
-	columnMiddle
-	columnRight
-)
-
 // columnLines returns the first two content lines of one column of a
 // rendered view, without its border, padding or styling.
 func columnLines(t *testing.T, view string, column int) []string {
@@ -540,82 +535,247 @@ func TestLayoutIsFixed(t *testing.T) {
 	}
 }
 
-// measureColumns measures the columns of a rendered view by splitting the top
-// border line at the corners.
+// measureColumns measures the columns of a rendered view by splitting
+// their top border line at the corners.
 func measureColumns(t *testing.T, view string) []int {
 	t.Helper()
 
-	lines := strings.Split(view, "\n")
-	top := lines[headerHeight] // the header sits above the columns.
+	// The header sits above the columns.
+	return measureBoxes(t, strings.Split(view, "\n")[headerHeight])
+}
+
+// measureBoxes measures a row of boxes by splitting the border line
+// they start with at its corners.
+func measureBoxes(t *testing.T, border string) []int {
+	t.Helper()
+
 	var widths []int
-	for _, column := range strings.SplitAfter(top, "╮") {
-		if column == "" {
+	for _, box := range strings.SplitAfter(border, "╮") {
+		if box == "" {
 			continue
 		}
-		widths = append(widths, lipgloss.Width(column))
+		widths = append(widths, lipgloss.Width(box))
 	}
 
 	return widths
 }
 
-func TestHeaderShowsPathOfOpenBucket(t *testing.T) {
+func TestHeaderShowsWhereWeAreAndWhatWeAreIn(t *testing.T) {
 	t.Parallel()
 
 	m := newTestModel(t, newFakeTree())
-	if got := header(m.View()); !strings.Contains(got, "bucket:") {
+	if got := headerText(m.View()); !strings.Contains(got, bucketLabel) {
 		t.Errorf("header at the root = %q, want the bucket label in it", got)
 	}
 
 	m = selectEntry(t, m, "config")
 	m = pressType(t, m, tea.KeyEnter)
 
-	got := header(m.View())
-	if !strings.Contains(got, "config") {
-		t.Errorf("header = %q, want the open bucket in it", got)
+	got := headerText(m.View())
+	for _, want := range []string{"config", testDB.Path, "4.0 MiB"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("header = %q, want %q in it", got, want)
+		}
 	}
-	if !strings.Contains(got, "boltcutter") || !strings.Contains(got, "testdata/test.db") {
-		t.Errorf("header = %q, want the program name and the database file in it", got)
+	// The bucket leads: it is the fact that changes as we browse.
+	if !strings.HasPrefix(strings.TrimSpace(got), bucketLabel+" ") {
+		t.Errorf("header = %q, want it to open with the bucket", got)
 	}
 }
 
-func TestHeaderDropsPathWhenNarrow(t *testing.T) {
+func TestHeaderFactsGiveWayInOrder(t *testing.T) {
 	t.Parallel()
 
-	m, err := New(newFakeTree(), "/very/long/path/to/a/database/file.db")
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	t.Cleanup(m.Close)
+	m := newTestModel(t, newFakeTree())
+	m = selectEntry(t, m, "config")
+	m = pressType(t, m, tea.KeyEnter)
+	m = selectEntry(t, m, "flags")
+	m = pressType(t, m, tea.KeyEnter)
 
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 24})
+	// The bucket is the last fact to give way, and the size, being the
+	// shortest, is kept long after the path it belongs to has gone.
+	tests := map[string]struct {
+		room         int
+		bucket, file string
+	}{
+		"everything":     {room: 60, bucket: "at config/flags", file: "db testdata/test.db   ·   4.0 MiB"},
+		"path shortened": {room: 50, bucket: "at config/flags", file: "db …tdata/test.db   ·   4.0 MiB"},
+		"path dropped":   {room: 35, bucket: "at config/flags", file: "4.0 MiB"},
+		"size dropped":   {room: 20, bucket: "at config/flags", file: ""},
+		"bucket cut":     {room: 10, bucket: "at …/flags", file: ""},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			bucket, file := m.facts(test.room)
+			if got := ansi.Strip(bucket); got != test.bucket {
+				t.Errorf("facts(%d) bucket = %q, want %q", test.room, got, test.bucket)
+			}
+			if got := ansi.Strip(file); got != test.file {
+				t.Errorf("facts(%d) file = %q, want %q", test.room, got, test.file)
+			}
+			if got := lipgloss.Width(bucket) + lipgloss.Width(file); got > test.room {
+				t.Errorf("facts(%d) is %d cells wide", test.room, got)
+			}
+		})
+	}
+}
+
+func TestHeaderShowsTheWholePathOfTheOpenBucket(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(t, newFakeTree())
+	m = selectEntry(t, m, "config")
+	m = pressType(t, m, tea.KeyEnter)
+	m = selectEntry(t, m, "flags")
+	m = pressType(t, m, tea.KeyEnter)
+
+	// Every bucket from the root down, while the bar has the room
+	// for them.
+	if got := headerText(m.View()); !strings.Contains(got, "config/flags") {
+		t.Errorf("header = %q, want the whole path of the open bucket in it", got)
+	}
+}
+
+func TestFooterShowsShortcuts(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(t, newFakeTree())
+	got := footerText(m.View())
+
+	// A bar the width of the terminal is room for every shortcut at
+	// its full wording.
+	for _, s := range shortcuts {
+		if want := s.spell(0).text(); !strings.Contains(got, want) {
+			t.Errorf("footer = %q, want the %q shortcut in it", got, want)
+		}
+	}
+}
+
+func TestFooterShortensShortcutsToFitThemAllIn(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(t, newFakeTree())
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	narrow, ok := updated.(Model)
 	if !ok {
 		t.Fatalf("Update returned %T, want ui.Model", updated)
 	}
 
-	got := header(narrow.View())
-	if lipgloss.Width(got) != 40 {
-		t.Errorf("header width = %d, want 40", lipgloss.Width(got))
-	}
-	// The file is shortened to fit, the program name is kept whole.
-	if !strings.Contains(got, "boltcutter") {
-		t.Errorf("header = %q, want the program name kept", got)
-	}
-	if !strings.Contains(got, "…") {
-		t.Errorf("header = %q, want the database file truncated", got)
+	// The full wording of them all does not fit a bar this narrow, so
+	// every shortcut gives its words up together: a list spelled two
+	// ways at once would read as two lists. A shortcut with nothing
+	// shorter to say is spelled the one way and proves nothing here.
+	got := footerText(narrow.View())
+	for _, s := range shortcuts {
+		full, brief := s.spell(0), s.spell(1)
+		if !strings.Contains(got, brief.text()) {
+			t.Errorf("footer = %q, want the %q shortcut in it", got, brief.text())
+		}
+		if brief != full && strings.Contains(got, full.text()) {
+			t.Errorf("footer = %q, want %q shortened to %q", got, full.text(), brief.text())
+		}
 	}
 }
 
-// header returns the content line of the rendered header, inside its
-// border.
-func header(view string) string {
-	return strings.Split(view, "\n")[1]
+func TestFooterFallsBackToBareKeys(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(t, newFakeTree())
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 36, Height: 24})
+	narrow, ok := updated.(Model)
+	if !ok {
+		t.Fatalf("Update returned %T, want ui.Model", updated)
+	}
+
+	// Nothing fits beside its own words here, so the bar keeps the
+	// keys and drops the words: a key is a reminder to whoever has
+	// used the browser before, and the bar is the only place it is
+	// written down.
+	got := footerText(narrow.View())
+	if !strings.Contains(got, shortcuts[0].keys) {
+		t.Errorf("footer = %q, want the keys of the first shortcut in it", got)
+	}
+	for _, s := range shortcuts {
+		if strings.Contains(got, s.help) {
+			t.Errorf("footer = %q, want %q dropped at this width", got, s.help)
+		}
+	}
+}
+
+func TestHeaderTruncatesThePathFromTheLeft(t *testing.T) {
+	t.Parallel()
+
+	m, err := New(newFakeTree(), DB{Path: "/very/long/path/to/a/database/file.db", Size: 512})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(m.Close)
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 56, Height: 24})
+	narrow, ok := updated.(Model)
+	if !ok {
+		t.Fatalf("Update returned %T, want ui.Model", updated)
+	}
+
+	// What is left of the path is its tail, which is the part that
+	// names the file.
+	got := headerText(narrow.View())
+	if !strings.Contains(got, "file.db") {
+		t.Errorf("header = %q, want the file name kept", got)
+	}
+	if !strings.Contains(got, ellipsis) {
+		t.Errorf("header = %q, want the path truncated", got)
+	}
+	if strings.Contains(got, "/very/long") {
+		t.Errorf("header = %q, want the head of the path dropped", got)
+	}
+}
+
+func TestHeaderSizes(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		size int64
+		want string
+	}{
+		"unknown":   {size: -1, want: unknownSize},
+		"empty":     {size: 0, want: "0 B"},
+		"bytes":     {size: 512, want: "512 B"},
+		"kibibytes": {size: 4096, want: "4.0 KiB"},
+		"mebibytes": {size: 3 * 1024 * 1024 / 2, want: "1.5 MiB"},
+		"gibibytes": {size: 2 * 1024 * 1024 * 1024, want: "2.0 GiB"},
+	}
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := formatSize(test.size); got != test.want {
+				t.Errorf("formatSize(%d) = %q, want %q", test.size, got, test.want)
+			}
+		})
+	}
+}
+
+// headerText returns the header bar of a rendered view, stripped of
+// styling.
+func headerText(view string) string {
+	return ansi.Strip(strings.Split(view, "\n")[0])
+}
+
+// footerText returns the content line of the rendered footer, inside
+// its border and stripped of styling.
+func footerText(view string) string {
+	lines := strings.Split(view, "\n")
+
+	return ansi.Strip(lines[len(lines)-2])
 }
 
 func TestViewBeforeWindowSize(t *testing.T) {
 	t.Parallel()
 
-	m, err := New(newFakeTree(), "testdata/test.db")
+	m, err := New(newFakeTree(), testDB)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

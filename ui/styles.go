@@ -38,15 +38,17 @@ type styles struct {
 	tokenLiteral lipgloss.Style
 	tokenPunct   lipgloss.Style
 
-	header  lipgloss.Style
-	appName lipgloss.Style
-	label   lipgloss.Style
-	dbPath  lipgloss.Style
-	crumb   lipgloss.Style
+	bar       lipgloss.Style
+	label     lipgloss.Style
+	separator lipgloss.Style
+	dbPath    lipgloss.Style
+	dbSize    lipgloss.Style
+	crumb     lipgloss.Style
 
-	footer    lipgloss.Style
-	footerKey lipgloss.Style
-	errorText lipgloss.Style
+	footer      lipgloss.Style
+	shortcut    lipgloss.Style
+	shortcutKey lipgloss.Style
+	errorText   lipgloss.Style
 }
 
 func newStyles() styles {
@@ -54,9 +56,6 @@ func newStyles() styles {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorMuted).
 		Padding(0, 1)
-
-	// The header and footer are single-line boxes framed like a column.
-	bar := box.Height(1)
 
 	// List rows carry no padding of their own: the box already pads,
 	// and rows mark the cursor with a prefix instead.
@@ -80,17 +79,23 @@ func newStyles() styles {
 		tokenLiteral: item.Foreground(colorLiteral),
 		tokenPunct:   item.Foreground(colorMuted),
 
-		// The header and the footer are framed like the columns, so the
-		// screen reads as one set of boxes.
-		header:  bar,
-		appName: lipgloss.NewStyle().Foreground(colorAccent).Bold(true),
-		label:   lipgloss.NewStyle().Foreground(colorMuted),
-		dbPath:  lipgloss.NewStyle().Foreground(colorMuted),
-		crumb:   lipgloss.NewStyle().Foreground(colorBucket).Bold(true),
+		// The header and the footer are bars rather than boxes: a
+		// column of padding at either end, and no frame. Only the
+		// columns between them are framed.
+		bar:       lipgloss.NewStyle().Padding(0, barPadding),
+		label:     lipgloss.NewStyle().Foreground(colorMuted),
+		separator: lipgloss.NewStyle().Foreground(colorMuted),
+		dbPath:    lipgloss.NewStyle().Foreground(colorMuted),
+		dbSize:    lipgloss.NewStyle().Foreground(colorMuted),
+		crumb:     lipgloss.NewStyle().Foreground(colorBucket).Bold(true),
 
-		footer:    bar.Foreground(colorMuted),
-		footerKey: lipgloss.NewStyle().Foreground(colorAccent).Bold(true),
-		errorText: lipgloss.NewStyle().Foreground(colorError),
+		// The footer is framed like a column, which is what tells it
+		// apart from the header: one bar of the screen is chrome and
+		// the other is the keys that drive it.
+		footer:      box.Height(1),
+		shortcut:    lipgloss.NewStyle().Foreground(colorMuted),
+		shortcutKey: lipgloss.NewStyle().Foreground(colorAccent).Bold(true),
+		errorText:   lipgloss.NewStyle().Foreground(colorError),
 	}
 }
 

@@ -14,27 +14,28 @@ BoltCutter opens a bbolt database file and lets you navigate its buckets and key
 boltcutter path/to/my.db
 ```
 
-The database is opened read-only. A header names the database file and
-the bucket that is open, and three panes sit below it. The listings fill
-the panes from the left: at the root the cursor is in the left pane, and
-once you dive into a bucket the left pane keeps the bucket you came from
-while the cursor moves to the middle and stays there, however deep you
-go. The right pane is reserved for the value of the selected key. Buckets
-are marked with a trailing `/`.
+The database is opened read-only. A header names the bucket that is open
+on the left, and the database file and its size on the right; the
+shortcuts sit in a footer below. Three panes fill the screen between
+them. The listings fill the panes from the left: at the root the cursor
+is in the left pane, and once you dive into a bucket the left pane keeps
+the bucket you came from while the cursor moves to the middle and stays
+there, however deep you go. The right pane is reserved for the value of
+the selected key. Buckets are marked with a trailing `/`.
 
-| Key             | Action                            |
-| --------------- | --------------------------------- |
-| `↑`/`k`,`↓`/`j` | move the cursor, scroll the value |
-| `pgup`/`pgdn`   | page up / down                    |
-| `g` / `G`       | jump to top / bottom              |
-| `enter`/`→`     | open the selected bucket          |
-| `esc`/`←`       | back to the parent bucket         |
-| `tab`           | focus the value, to scroll it     |
-| `r`             | re-read the open buckets          |
-| `q`             | quit                              |
+| Key                     | Action                            |
+| ----------------------- | --------------------------------- |
+| `↑`/`k`, `↓`/`j`        | move the cursor, scroll the value |
+| `pgup`/`ctrl+b`, `pgdn`/`ctrl+f` | page up / down           |
+| `home`/`g`, `end`/`G`   | jump to top / bottom              |
+| `enter`/`→`/`l`         | open the selected bucket          |
+| `esc`/`←`/`h`/`backspace` | back to the parent bucket       |
+| `tab`                   | focus the value, to scroll it     |
+| `q`/`ctrl+c`            | quit                              |
 
-Values are shown as indented, syntax-highlighted JSON. Anything that is
-not valid JSON shows as an empty preview for now.
+Values are shown as indented, syntax-highlighted JSON. A value in no
+format we can read, or one too long to preview whole, says so in the
+pane instead.
 
 ## Development
 

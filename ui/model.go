@@ -29,16 +29,36 @@ const (
 	minColumnWidth  = 12
 	minColumnHeight = 3
 
-	// The header and the footer are framed like a column, so each
-	// takes a line of content plus its border.
-	headerHeight = 1 + boxBorder
+	// The header is a line of text, unframed. The footer is framed
+	// like a column, so it takes a line of content plus its border.
+	headerHeight = 1
 	footerHeight = 1 + boxBorder
 	// boxBorder and boxPadding are the width and height the border and
 	// the padding add on top of the content of a framed box. The
-	// columns, the header and the footer are each drawn in one.
+	// columns are each drawn in one.
 	boxBorder  = 2
 	boxPadding = 2
 )
+
+// The three places a column is drawn in, left to right. They name
+// places on the screen and not what is in them: which listing a place
+// holds changes as the browser moves, while the width of the place
+// does not.
+const (
+	columnLeft = iota
+	columnMiddle
+	columnRight
+)
+
+// DB describes the database file being browsed. It is what the header
+// says about the file itself, which is nothing a tree.Tree can be
+// asked: a tree is a source of entries and need not be a file at all.
+type DB struct {
+	// Path names the file, and Size is its length in bytes. A size
+	// below zero is one the caller could not find out.
+	Path string
+	Size int64
+}
 
 // Model is the bubbletea model of the browser. It keeps one column per
 // level from the root down to the node that is open, and shows the last
@@ -46,8 +66,9 @@ const (
 type Model struct {
 	tree   tree.Tree
 	styles styles
-	// dbPath is the database file being browsed, shown in the header.
-	dbPath string
+	// db describes the file being browsed, and is what the header says
+	// about it.
+	db DB
 
 	// columns is never empty: columns[0] lists the database root and
 	// the last one holds the cursor.
@@ -279,8 +300,8 @@ func (m *Model) resize() {
 	m.preview.offset = clampOffset(m.preview.offset, len(m.preview.lines), height)
 }
 
-// columnHeight is the outer height of a column, i.e. what is left
-// between the header and the footer.
+// columnHeight is the outer height of a column, i.e. what the bars
+// above and below leave of the terminal.
 func (m Model) columnHeight() int {
 	return max(m.height-headerHeight-footerHeight, minColumnHeight)
 }
