@@ -3,21 +3,57 @@ package command
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
+	bolt "go.etcd.io/bbolt"
+
+	"github.com/Br0ce/boltcutter/store"
+	"github.com/Br0ce/boltcutter/ui"
+	"github.com/Br0ce/boltcutter/version"
 )
+
+// openTimeout bounds the wait for the database file lock, so a database
+// held by another process fails fast instead of hanging the terminal.
+const openTimeout = 2 * time.Second
 
 var (
 	rootCmd = &cobra.Command{
-		Use:   "boltcutter",
-		Short: "A TUI for sifting through your bbolt data",
+		Use:     "boltcutter <database>",
+		Version: version.Version,
+		Short:   "A TUI for sifting through your bbolt data",
 		Long: `BoltCutter is a terminal UI for browsing bbolt databases.
 
 It opens a bbolt database file and lets you navigate its buckets and
 key/value pairs interactively, so you can inspect the contents of a
 database without writing ad-hoc scripts to peek inside.`,
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Welcome to boltcutter!")
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := args[0]
+			if path == "" {
+				return fmt.Errorf("database path is required")
+			}
+
+			db, err := bolt.Open(path, 0o600, &bolt.Options{
+				ReadOnly: true,
+				Timeout:  openTimeout,
+			})
+			if err != nil {
+				return fmt.Errorf("open database %q: %w", path, err)
+			}
+			defer db.Close()
+
+			// The store holds a read transaction open for as long as
+			// it lives, and the database cannot be closed under one,
+			// so it is closed first.
+			st, err := store.New(db)
+			if err != nil {
+				return fmt.Errorf("read database %q: %w", path, err)
+			}
+			defer st.Close()
+
+			return ui.Run(st)
 		},
 	}
 )
