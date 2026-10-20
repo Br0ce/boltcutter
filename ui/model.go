@@ -50,25 +50,19 @@ const (
 	columnRight
 )
 
-// DB describes the database file being browsed. It is what the header
-// says about the file itself, which is nothing a tree.Tree can be
-// asked: a tree is a source of entries and need not be a file at all.
-type DB struct {
-	// Path names the file, and Size is its length in bytes. A size
-	// below zero is one the caller could not find out.
-	Path string
-	Size int64
-}
-
 // Model is the bubbletea model of the browser. It keeps one column per
 // level from the root down to the node that is open, and shows the last
 // two of them beside a preview of what the cursor is on.
 type Model struct {
 	tree   tree.Tree
 	styles styles
-	// db describes the file being browsed, and is what the header says
-	// about it.
-	db DB
+	// dbPath names the database file being browsed, and dbSize is its
+	// length in bytes, below zero when the caller could not find it
+	// out. They are what the header says about the file itself, which
+	// is nothing a tree.Tree can be asked: a tree is a source of
+	// entries and need not be a file at all.
+	dbPath string
+	dbSize int64
 
 	// columns is never empty: columns[0] lists the database root and
 	// the last one holds the cursor.

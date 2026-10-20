@@ -14,15 +14,19 @@ import (
 	"github.com/Br0ce/boltcutter/value"
 )
 
-// testDB is the database the tests say they are browsing.
-var testDB = DB{Path: "testdata/test.db", Size: 4 * 1024 * 1024}
+// testPath and testSize describe the database the tests say they are
+// browsing.
+const (
+	testPath = "testdata/test.db"
+	testSize = 4 * 1024 * 1024
+)
 
 // newTestModel returns a model sized to a terminal large enough that
 // nothing scrolls, and closes it with the test.
 func newTestModel(t *testing.T, ft *fakeTree) Model {
 	t.Helper()
 
-	m, err := New(ft, testDB)
+	m, err := New(ft, testPath, testSize)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -370,7 +374,7 @@ func TestNewFailsOnARootThatWillNotOpen(t *testing.T) {
 	ft := newFakeTree()
 	ft.fail(nil, errors.New("no such database"))
 
-	if _, err := New(ft, testDB); err == nil {
+	if _, err := New(ft, testPath, testSize); err == nil {
 		t.Error("New over a tree with no root returned no error")
 	}
 }
@@ -425,7 +429,7 @@ func TestViewLayout(t *testing.T) {
 	// The header names the open bucket, the file and its size, the
 	// footer the shortcuts, and the columns list the root buckets,
 	// marked with a trailing slash.
-	for _, want := range []string{bucketLabel, dbLabel, testDB.Path, "4.0 MiB", "config/", "users/", "quit"} {
+	for _, want := range []string{bucketLabel, dbLabel, testPath, "4.0 MiB", "config/", "users/", "quit"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view does not contain %q", want)
 		}
@@ -572,7 +576,7 @@ func TestHeaderShowsWhereWeAreAndWhatWeAreIn(t *testing.T) {
 	m = pressType(t, m, tea.KeyEnter)
 
 	got := headerText(m.View())
-	for _, want := range []string{"config", testDB.Path, "4.0 MiB"} {
+	for _, want := range []string{"config", testPath, "4.0 MiB"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("header = %q, want %q in it", got, want)
 		}
@@ -707,7 +711,7 @@ func TestFooterFallsBackToBareKeys(t *testing.T) {
 func TestHeaderTruncatesThePathFromTheLeft(t *testing.T) {
 	t.Parallel()
 
-	m, err := New(newFakeTree(), DB{Path: "/very/long/path/to/a/database/file.db", Size: 512})
+	m, err := New(newFakeTree(), "/very/long/path/to/a/database/file.db", 512)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -775,7 +779,7 @@ func footerText(view string) string {
 func TestViewBeforeWindowSize(t *testing.T) {
 	t.Parallel()
 
-	m, err := New(newFakeTree(), testDB)
+	m, err := New(newFakeTree(), testPath, testSize)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
