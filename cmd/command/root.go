@@ -10,6 +10,7 @@ import (
 
 	"github.com/Br0ce/boltcutter/store"
 	"github.com/Br0ce/boltcutter/ui"
+	"github.com/Br0ce/boltcutter/version"
 )
 
 // openTimeout bounds the wait for the database file lock, so a database
@@ -18,8 +19,9 @@ const openTimeout = 2 * time.Second
 
 var (
 	rootCmd = &cobra.Command{
-		Use:   "boltcutter <database>",
-		Short: "A TUI for sifting through your bbolt data",
+		Use:     "boltcutter <database>",
+		Version: version.Version,
+		Short:   "A TUI for sifting through your bbolt data",
 		Long: `BoltCutter is a terminal UI for browsing bbolt databases.
 
 It opens a bbolt database file and lets you navigate its buckets and

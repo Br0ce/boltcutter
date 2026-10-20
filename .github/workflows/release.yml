@@ -1,0 +1,52 @@
+on:
+  push:
+    tags:
+      - "v*"
+
+name: release
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    env:
+      GOPATH: ${{ github.workspace }}
+      CGO_ENABLED: "0"
+
+    defaults:
+      run:
+        working-directory: ${{ env.GOPATH }}/src/github.com/${{ github.repository }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          path: ${{ env.GOPATH }}/src/github.com/${{ github.repository }}
+
+      - name: Install Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ env.GOPATH }}/src/github.com/${{ github.repository }}/go.mod
+          cache: false
+
+      - name: Build macOS arm64
+        env:
+          GOOS: darwin
+          GOARCH: arm64
+        run: go build -trimpath -ldflags="-s -w -X github.com/Br0ce/boltcutter/version.Version=${{ github.ref_name }}" -o bin/boltcutter-${{ github.ref_name }}-darwin-arm64 ./cmd
+
+      - name: Build Linux amd64
+        env:
+          GOOS: linux
+          GOARCH: amd64
+        run: go build -trimpath -ldflags="-s -w -X github.com/Br0ce/boltcutter/version.Version=${{ github.ref_name }}" -o bin/boltcutter-${{ github.ref_name }}-linux-amd64 ./cmd
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            ${{ env.GOPATH }}/src/github.com/${{ github.repository }}/bin/boltcutter-${{ github.ref_name }}-darwin-arm64
+            ${{ env.GOPATH }}/src/github.com/${{ github.repository }}/bin/boltcutter-${{ github.ref_name }}-linux-amd64
