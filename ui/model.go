@@ -53,16 +53,15 @@ const (
 // Model is the bubbletea model of the browser. It keeps one column per
 // level from the root down to the node that is open, and shows the last
 // two of them beside a preview of what the cursor is on.
+//
+// What the header says about the database itself, its path and its
+// size, is asked of the tree rather than handed to the model beside
+// it: the tree is what is being browsed, and it is the one that knows
+// what it reads. The size is the one the tree stands on, so it holds
+// still with everything else on screen however the file changes.
 type Model struct {
 	tree   tree.Tree
 	styles styles
-	// dbPath names the database file being browsed, and dbSize is its
-	// length in bytes, below zero when the caller could not find it
-	// out. They are what the header says about the file itself, which
-	// is nothing a tree.Tree can be asked: a tree is a source of
-	// entries and need not be a file at all.
-	dbPath string
-	dbSize int64
 
 	// columns is never empty: columns[0] lists the database root and
 	// the last one holds the cursor.

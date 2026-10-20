@@ -53,12 +53,7 @@ database without writing ad-hoc scripts to peek inside.`,
 			}
 			defer st.Close()
 
-			info, err := os.Stat(path)
-			if err != nil {
-				return fmt.Errorf("read database stat %q: %w", path, err)
-			}
-
-			return ui.Run(st, path, info.Size())
+			return ui.Run(st)
 		},
 	}
 )

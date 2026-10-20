@@ -19,6 +19,8 @@ type fakeTree struct {
 	nodes  map[string][]tree.Entry
 	values map[string][]byte
 	errs   map[string]error
+	path   string
+	size   int64
 
 	open int
 }
@@ -51,6 +53,8 @@ func newFakeTree() *fakeTree {
 			"users/user:002":    []byte(`{"id":2}`),
 		},
 		errs: map[string]error{},
+		path: testPath,
+		size: testSize,
 	}
 }
 
@@ -92,6 +96,10 @@ func (t *fakeTree) Open(path tree.Path) (tree.Listing, error) {
 
 	return &fakeListing{tree: t, entries: entries, at: -1}, nil
 }
+
+func (t *fakeTree) Path() string { return t.path }
+
+func (t *fakeTree) Size() int64 { return t.size }
 
 func (t *fakeTree) Read(path tree.Path, limit int) ([]byte, int, error) {
 	if err := t.errs[key(path)]; err != nil {

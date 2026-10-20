@@ -51,6 +51,10 @@ var ErrWritable = errors.New("database is not open read-only")
 // Bolt reads a bbolt database at the state it had when it was opened.
 type Bolt struct {
 	tx *bolt.Tx
+	// path and size are taken from the transaction when it begins, so
+	// that a closed Bolt still answers for them.
+	path string
+	size int64
 }
 
 // New returns a Bolt reading from db, and opens the read-only
@@ -69,7 +73,19 @@ func New(db *bolt.DB) (*Bolt, error) {
 		return nil, fmt.Errorf("begin read transaction: %w", err)
 	}
 
-	return &Bolt{tx: tx}, nil
+	return &Bolt{tx: tx, path: db.Path(), size: tx.Size()}, nil
+}
+
+// Path names the file the database was opened from.
+func (b *Bolt) Path() string {
+	return b.path
+}
+
+// Size is the length of the database in bytes as the transaction sees
+// it. That is the pages the snapshot spans, which can fall short of
+// the length of the file: bbolt grows a file ahead of what it fills.
+func (b *Bolt) Size() int64 {
+	return b.size
 }
 
 // Close ends the transaction, and with it every listing taken from it.

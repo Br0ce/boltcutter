@@ -89,8 +89,8 @@ func (f fact) width() int {
 // empty.
 func (m Model) facts(room int) (string, string) {
 	bucket := fact{label: bucketLabel, value: m.crumb(), style: m.styles.crumb}
-	size := fact{value: formatSize(m.dbSize), style: m.styles.dbSize}
-	file := fact{label: dbLabel, value: m.dbPath, style: m.styles.dbPath}
+	size := fact{value: formatSize(m.tree.Size()), style: m.styles.dbSize}
+	file := fact{label: dbLabel, value: m.tree.Path(), style: m.styles.dbPath}
 
 	sep := lipgloss.Width(factSeparator)
 	// What is left for the path once the bucket, the size, the label

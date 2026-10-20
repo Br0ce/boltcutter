@@ -106,6 +106,28 @@ func names(entries []tree.Entry) []string {
 	return out
 }
 
+func TestBoltDescribesItsFile(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDB(t)
+	store := storeOver(t, db)
+
+	if got := store.Path(); got != db.Path() {
+		t.Errorf("Path = %q, want %q", got, db.Path())
+	}
+	var want int64
+	if err := db.View(func(tx *bolt.Tx) error {
+		want = tx.Size()
+
+		return nil
+	}); err != nil {
+		t.Fatalf("view: %v", err)
+	}
+	if got := store.Size(); got != want {
+		t.Errorf("Size = %d, want %d", got, want)
+	}
+}
+
 func TestRootHoldsBucketsOnly(t *testing.T) {
 	t.Parallel()
 

@@ -26,7 +26,7 @@ const (
 func newTestModel(t *testing.T, ft *fakeTree) Model {
 	t.Helper()
 
-	m, err := New(ft, testPath, testSize)
+	m, err := New(ft)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -374,7 +374,7 @@ func TestNewFailsOnARootThatWillNotOpen(t *testing.T) {
 	ft := newFakeTree()
 	ft.fail(nil, errors.New("no such database"))
 
-	if _, err := New(ft, testPath, testSize); err == nil {
+	if _, err := New(ft); err == nil {
 		t.Error("New over a tree with no root returned no error")
 	}
 }
@@ -711,7 +711,9 @@ func TestFooterFallsBackToBareKeys(t *testing.T) {
 func TestHeaderTruncatesThePathFromTheLeft(t *testing.T) {
 	t.Parallel()
 
-	m, err := New(newFakeTree(), "/very/long/path/to/a/database/file.db", 512)
+	ft := newFakeTree()
+	ft.path, ft.size = "/very/long/path/to/a/database/file.db", 512
+	m, err := New(ft)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -779,7 +781,7 @@ func footerText(view string) string {
 func TestViewBeforeWindowSize(t *testing.T) {
 	t.Parallel()
 
-	m, err := New(newFakeTree(), testPath, testSize)
+	m, err := New(newFakeTree())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
