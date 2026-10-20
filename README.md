@@ -8,6 +8,50 @@ A terminal UI for browsing [bbolt](https://github.com/etcd-io/bbolt) databases.
 
 BoltCutter opens a bbolt database file and lets you navigate its buckets and key/value pairs interactively — no need to write ad-hoc scripts to peek inside.
 
+## Install
+
+Download the binary for your platform from the [releases page](https://github.com/Br0ce/boltcutter/releases).
+
+### macOS (Apple Silicon)
+
+```sh
+VERSION=v0.1.0  # replace with the desired version
+curl -LO https://github.com/Br0ce/boltcutter/releases/download/${VERSION}/boltcutter-${VERSION}-darwin-arm64
+
+# Verify the checksum against the value published on the releases page
+shasum -a 256 boltcutter-${VERSION}-darwin-arm64
+
+chmod +x boltcutter-${VERSION}-darwin-arm64
+sudo mv boltcutter-${VERSION}-darwin-arm64 /usr/local/bin/boltcutter
+boltcutter --version
+```
+
+### Linux (amd64)
+
+```sh
+VERSION=v0.1.0  # replace with the desired version
+curl -LO https://github.com/Br0ce/boltcutter/releases/download/${VERSION}/boltcutter-${VERSION}-linux-amd64
+
+# Verify the checksum against the value published on the releases page
+sha256sum boltcutter-${VERSION}-linux-amd64
+
+chmod +x boltcutter-${VERSION}-linux-amd64
+sudo mv boltcutter-${VERSION}-linux-amd64 /usr/local/bin/boltcutter
+boltcutter --version
+```
+
+### From source
+
+Requires Go 1.27+.
+
+```sh
+git clone https://github.com/Br0ce/boltcutter.git
+cd boltcutter
+make build
+```
+
+The binary will be placed at `./bin/boltcutter`.
+
 ## Usage
 
 ```
