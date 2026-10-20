@@ -14,15 +14,6 @@ BoltCutter opens a bbolt database file and lets you navigate its buckets and key
 boltcutter path/to/my.db
 ```
 
-The database is opened read-only. A header names the bucket that is open
-on the left, and the database file and its size on the right; the
-shortcuts sit in a footer below. Three panes fill the screen between
-them. The listings fill the panes from the left: at the root the cursor
-is in the left pane, and once you dive into a bucket the left pane keeps
-the bucket you came from while the cursor moves to the middle and stays
-there, however deep you go. The right pane is reserved for the value of
-the selected key. Buckets are marked with a trailing `/`.
-
 | Key                     | Action                            |
 | ----------------------- | --------------------------------- |
 | `↑`/`k`, `↓`/`j`        | move the cursor, scroll the value |

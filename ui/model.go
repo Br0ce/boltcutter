@@ -29,9 +29,9 @@ const (
 	minColumnWidth  = 12
 	minColumnHeight = 3
 
-	// The header is a line of text, unframed. The footer is framed
-	// like a column, so it takes a line of content plus its border.
-	headerHeight = 1
+	// The header and the footer are framed like a column, so each
+	// takes a line of content plus its border.
+	headerHeight = 1 + boxBorder
 	footerHeight = 1 + boxBorder
 	// boxBorder and boxPadding are the width and height the border and
 	// the padding add on top of the content of a framed box. The
@@ -54,7 +54,7 @@ const (
 // level from the root down to the node that is open, and shows the last
 // two of them beside a preview of what the cursor is on.
 //
-// What the header says about the database itself, its path and its
+// What the header says about the database itself, its name and its
 // size, is asked of the tree rather than handed to the model beside
 // it: the tree is what is being browsed, and it is the one that knows
 // what it reads. The size is the one the tree stands on, so it holds

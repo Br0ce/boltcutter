@@ -124,7 +124,7 @@ func (m Model) footer() string {
 		}
 	}
 
-	return m.styles.footer.Width(max(m.width-boxBorder, 0)).Render(line)
+	return m.styles.bar.Width(max(m.width-boxBorder, 0)).Render(line)
 }
 
 // packShortcuts lays the shortcuts along a bar of the given room,

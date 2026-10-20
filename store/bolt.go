@@ -33,6 +33,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	bolt "go.etcd.io/bbolt"
 
@@ -51,9 +52,9 @@ var ErrWritable = errors.New("database is not open read-only")
 // Bolt reads a bbolt database at the state it had when it was opened.
 type Bolt struct {
 	tx *bolt.Tx
-	// path and size are taken from the transaction when it begins, so
+	// name and size are taken from the transaction when it begins, so
 	// that a closed Bolt still answers for them.
-	path string
+	name string
 	size int64
 }
 
@@ -73,12 +74,12 @@ func New(db *bolt.DB) (*Bolt, error) {
 		return nil, fmt.Errorf("begin read transaction: %w", err)
 	}
 
-	return &Bolt{tx: tx, path: db.Path(), size: tx.Size()}, nil
+	return &Bolt{tx: tx, name: filepath.Base(db.Path()), size: tx.Size()}, nil
 }
 
-// Path names the file the database was opened from.
-func (b *Bolt) Path() string {
-	return b.path
+// Name is the name of the file the database was opened from.
+func (b *Bolt) Name() string {
+	return b.name
 }
 
 // Size is the length of the database in bytes as the transaction sees

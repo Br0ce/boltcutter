@@ -178,9 +178,9 @@ type Tree interface {
 	// whole value. A reader that asked for less than the size it was
 	// told is holding a prefix, and is the one to say so.
 	Read(path Path, limit int) (data []byte, size int, err error)
-	// Path names the source the tree reads, the way a reader would
-	// name it: the file of a database, the root of a directory.
-	Path() string
+	// Name names the source the tree reads, the way a reader would
+	// name it: the file of a database, without the folder it sits in.
+	Name() string
 	// Size is how many bytes the source holds at the state the tree
 	// stands on, or a number below zero when the source cannot say.
 	Size() int64

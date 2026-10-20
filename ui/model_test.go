@@ -14,10 +14,10 @@ import (
 	"github.com/Br0ce/boltcutter/value"
 )
 
-// testPath and testSize describe the database the tests say they are
+// testName and testSize describe the database the tests say they are
 // browsing.
 const (
-	testPath = "testdata/test.db"
+	testName = "test.db"
 	testSize = 4 * 1024 * 1024
 )
 
@@ -426,10 +426,10 @@ func TestViewLayout(t *testing.T) {
 			t.Errorf("line %d width = %d, want 100", i, got)
 		}
 	}
-	// The header names the open bucket, the file and its size, the
+	// The header names the file and its size and carries the logo, the
 	// footer the shortcuts, and the columns list the root buckets,
 	// marked with a trailing slash.
-	for _, want := range []string{bucketLabel, dbLabel, testPath, "4.0 MiB", "config/", "users/", "quit"} {
+	for _, want := range []string{"test.db", "4.0 MiB", logoName, "config/", "users/", "quit"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view does not contain %q", want)
 		}
@@ -567,23 +567,24 @@ func measureBoxes(t *testing.T, border string) []int {
 func TestHeaderShowsWhereWeAreAndWhatWeAreIn(t *testing.T) {
 	t.Parallel()
 
+	// At the root the trail is the file alone.
 	m := newTestModel(t, newFakeTree())
-	if got := headerText(m.View()); !strings.Contains(got, bucketLabel) {
-		t.Errorf("header at the root = %q, want the bucket label in it", got)
+	if got := strings.Fields(headerText(m.View())); len(got) == 0 || got[0] != "test.db" {
+		t.Errorf("header at the root = %q, want it to open with the file", got)
 	}
 
 	m = selectEntry(t, m, "config")
 	m = pressType(t, m, tea.KeyEnter)
 
 	got := headerText(m.View())
-	for _, want := range []string{"config", testPath, "4.0 MiB"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("header = %q, want %q in it", got, want)
-		}
+	// The size and the logo hold the far end.
+	if want := "4.0 MiB · " + logoName; !strings.HasSuffix(got, want) {
+		t.Errorf("header = %q, want it to close with %q", got, want)
 	}
-	// The bucket leads: it is the fact that changes as we browse.
-	if !strings.HasPrefix(strings.TrimSpace(got), bucketLabel+" ") {
-		t.Errorf("header = %q, want it to open with the bucket", got)
+	// The trail leads, from the file down: it is what changes as we
+	// browse.
+	if !strings.HasPrefix(got, "test.db › config ") {
+		t.Errorf("header = %q, want it to open with the trail to the bucket", got)
 	}
 }
 
@@ -596,31 +597,33 @@ func TestHeaderFactsGiveWayInOrder(t *testing.T) {
 	m = selectEntry(t, m, "flags")
 	m = pressType(t, m, tea.KeyEnter)
 
-	// The bucket is the last fact to give way, and the size, being the
-	// shortest, is kept long after the path it belongs to has gone.
+	// The far end gives way before the trail does, the logo before the
+	// size. The trail keeps its ends longest: the file and the open
+	// bucket.
 	tests := map[string]struct {
-		room         int
-		bucket, file string
+		room       int
+		crumb, end string
 	}{
-		"everything":     {room: 60, bucket: "at config/flags", file: "db testdata/test.db   ·   4.0 MiB"},
-		"path shortened": {room: 50, bucket: "at config/flags", file: "db …tdata/test.db   ·   4.0 MiB"},
-		"path dropped":   {room: 35, bucket: "at config/flags", file: "4.0 MiB"},
-		"size dropped":   {room: 20, bucket: "at config/flags", file: ""},
-		"bucket cut":     {room: 10, bucket: "at …/flags", file: ""},
+		"everything":     {room: 48, crumb: "test.db › config › flags", end: "4.0 MiB · boltcutter"},
+		"logo dropped":   {room: 40, crumb: "test.db › config › flags", end: "4.0 MiB"},
+		"size dropped":   {room: 30, crumb: "test.db › config › flags", end: ""},
+		"middle dropped": {room: 20, crumb: "test.db › … › flags", end: ""},
+		"file dropped":   {room: 10, crumb: "… › flags", end: ""},
+		"bucket cut":     {room: 4, crumb: "…ags", end: ""},
 	}
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			bucket, file := m.facts(test.room)
-			if got := ansi.Strip(bucket); got != test.bucket {
-				t.Errorf("facts(%d) bucket = %q, want %q", test.room, got, test.bucket)
+			crumb, end := m.headerEnds(test.room)
+			if got := ansi.Strip(crumb); got != test.crumb {
+				t.Errorf("headerEnds(%d) crumb = %q, want %q", test.room, got, test.crumb)
 			}
-			if got := ansi.Strip(file); got != test.file {
-				t.Errorf("facts(%d) file = %q, want %q", test.room, got, test.file)
+			if got := ansi.Strip(end); got != test.end {
+				t.Errorf("headerEnds(%d) end = %q, want %q", test.room, got, test.end)
 			}
-			if got := lipgloss.Width(bucket) + lipgloss.Width(file); got > test.room {
-				t.Errorf("facts(%d) is %d cells wide", test.room, got)
+			if got := lipgloss.Width(crumb) + lipgloss.Width(end); got > test.room {
+				t.Errorf("headerEnds(%d) is %d cells wide", test.room, got)
 			}
 		})
 	}
@@ -637,8 +640,8 @@ func TestHeaderShowsTheWholePathOfTheOpenBucket(t *testing.T) {
 
 	// Every bucket from the root down, while the bar has the room
 	// for them.
-	if got := headerText(m.View()); !strings.Contains(got, "config/flags") {
-		t.Errorf("header = %q, want the whole path of the open bucket in it", got)
+	if got := headerText(m.View()); !strings.Contains(got, "test.db › config › flags") {
+		t.Errorf("header = %q, want the whole trail to the open bucket in it", got)
 	}
 }
 
@@ -708,34 +711,31 @@ func TestFooterFallsBackToBareKeys(t *testing.T) {
 	}
 }
 
-func TestHeaderTruncatesThePathFromTheLeft(t *testing.T) {
+// headerText returns the content line of the rendered header, inside
+// its border and padding and stripped of styling.
+func headerText(view string) string {
+	return strings.Trim(ansi.Strip(strings.Split(view, "\n")[1]), "│ ")
+}
+
+// footerText returns the content line of the rendered footer, inside
+// its border and stripped of styling.
+func footerText(view string) string {
+	lines := strings.Split(view, "\n")
+
+	return ansi.Strip(lines[len(lines)-2])
+}
+
+func TestViewBeforeWindowSize(t *testing.T) {
 	t.Parallel()
 
-	ft := newFakeTree()
-	ft.path, ft.size = "/very/long/path/to/a/database/file.db", 512
-	m, err := New(ft)
+	m, err := New(newFakeTree())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	t.Cleanup(m.Close)
 
-	updated, _ := m.Update(tea.WindowSizeMsg{Width: 56, Height: 24})
-	narrow, ok := updated.(Model)
-	if !ok {
-		t.Fatalf("Update returned %T, want ui.Model", updated)
-	}
-
-	// What is left of the path is its tail, which is the part that
-	// names the file.
-	got := headerText(narrow.View())
-	if !strings.Contains(got, "file.db") {
-		t.Errorf("header = %q, want the file name kept", got)
-	}
-	if !strings.Contains(got, ellipsis) {
-		t.Errorf("header = %q, want the path truncated", got)
-	}
-	if strings.Contains(got, "/very/long") {
-		t.Errorf("header = %q, want the head of the path dropped", got)
+	if got := m.View(); got != "" {
+		t.Errorf("View before the first WindowSizeMsg = %q, want empty", got)
 	}
 }
 
@@ -761,33 +761,5 @@ func TestHeaderSizes(t *testing.T) {
 				t.Errorf("formatSize(%d) = %q, want %q", test.size, got, test.want)
 			}
 		})
-	}
-}
-
-// headerText returns the header bar of a rendered view, stripped of
-// styling.
-func headerText(view string) string {
-	return ansi.Strip(strings.Split(view, "\n")[0])
-}
-
-// footerText returns the content line of the rendered footer, inside
-// its border and stripped of styling.
-func footerText(view string) string {
-	lines := strings.Split(view, "\n")
-
-	return ansi.Strip(lines[len(lines)-2])
-}
-
-func TestViewBeforeWindowSize(t *testing.T) {
-	t.Parallel()
-
-	m, err := New(newFakeTree())
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	t.Cleanup(m.Close)
-
-	if got := m.View(); got != "" {
-		t.Errorf("View before the first WindowSizeMsg = %q, want empty", got)
 	}
 }

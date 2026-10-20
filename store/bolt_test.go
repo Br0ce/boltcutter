@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -112,8 +113,8 @@ func TestBoltDescribesItsFile(t *testing.T) {
 	db := newTestDB(t)
 	store := storeOver(t, db)
 
-	if got := store.Path(); got != db.Path() {
-		t.Errorf("Path = %q, want %q", got, db.Path())
+	if got, want := store.Name(), filepath.Base(db.Path()); got != want {
+		t.Errorf("Name = %q, want %q", got, want)
 	}
 	var want int64
 	if err := db.View(func(tx *bolt.Tx) error {

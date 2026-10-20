@@ -2,142 +2,115 @@ package ui
 
 import (
 	"fmt"
-	"path"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Labels naming the facts of the header, so neither has to be guessed
-// at from its shape alone. The size carries no label of its own: no
-// other fact looks anything like one.
 const (
-	bucketLabel = "at"
-	dbLabel     = "db"
-)
-
-const (
-	// factSeparator divides the facts of the header. It is wide because
-	// the facts are short: the room around the dot is what keeps three
-	// of them from reading as one sentence.
-	factSeparator = "   ·   "
-	// barPadding is the column of space a bar keeps at either end of
-	// the terminal.
-	barPadding = 1
-	// groupGap is the least room left between the bucket and the file,
+	// crumbSeparator divides the steps of the trail from the file down
+	// to the open bucket. An arrow rather than a slash, so the trail
+	// reads as steps taken and not as one name that happens to hold
+	// slashes, which bolt keys and bucket names are free to do.
+	crumbSeparator = " › "
+	// logoName is the logo at the right end of the header.
+	logoName = "boltcutter"
+	// sizeSeparator divides the size of the file from the logo.
+	sizeSeparator = " · "
+	// groupGap is the least room left between the trail and the logo,
 	// which are otherwise held apart by the width of the terminal.
 	groupGap = 4
-	// minPathWidth is the least a database path is worth showing at.
-	// Below it the header drops the path rather than spend the room on
-	// an ellipsis and a letter of a directory.
-	minPathWidth = 8
-	// minCrumbWidth is the least the bucket is worth showing at. The
-	// size gives way rather than leave it any shorter.
-	minCrumbWidth = 8
 )
 
 // unknownSize stands in for a file we were given no size for.
 const unknownSize = "unknown"
 
-// header renders the flat bar above the columns: the bucket that is
-// open on the left, and on the right the file it is in and the size
-// of that file.
+// header renders the bar above the columns: on the left the trail
+// from the file down to the bucket that is open, and on the right the
+// size of the file beside the logo.
 //
-// The bucket stands alone at one end because it is the fact that
-// moves: a reader watching it browse looks at one place, not at
-// wherever the file before it happened to end. The file and its size
-// hold the other end, where they sit still. The program does not name
-// itself here: the reader has just typed it, and the bar is for what
-// changes.
+// The trail starts at the file because the file is the root of
+// everything below it: one line then says both where we are and in
+// what, and neither needs a label to be told apart from the other.
+// The size and the logo hold the other end, where they sit still
+// while the trail moves.
 //
-// The bar carries no frame of its own. The columns below are framed,
-// and a second row of boxes above them reads as a wall rather than as
-// a bar: a header is chrome, and chrome is best kept quiet.
+// The bar is framed like the footer, so the screen reads as one set
+// of boxes rather than as boxes with a line of text left above them.
 //
-// What the terminal is too narrow to hold is given up in order of what
-// it is worth: the database path first, then the size. The bucket is
-// the last to go, because it is the one fact here that changes as the
-// browser moves.
+// What the terminal is too narrow to hold is given up from the right
+// end first: the logo, then the size. The trail is the last to go, and even then
+// it keeps its two ends, the file and the open bucket, and gives up
+// the buckets between them.
 func (m Model) header() string {
-	room := max(m.width-2*barPadding, 0)
-	bucket, file := m.facts(room)
-	gap := max(room-lipgloss.Width(bucket)-lipgloss.Width(file), 0)
+	room := max(m.width-boxBorder-boxPadding, 0)
+	crumb, logo := m.headerEnds(room)
+	gap := max(room-lipgloss.Width(crumb)-lipgloss.Width(logo), 0)
 
-	return m.styles.bar.Width(m.width).Render(bucket + strings.Repeat(" ", gap) + file)
+	return m.styles.bar.Width(max(m.width-boxBorder, 0)).Render(crumb + strings.Repeat(" ", gap) + logo)
 }
 
-// A fact is one item of the header bar: a muted label, and the value
-// behind it in a style of the value's own.
-type fact struct {
-	label string
-	value string
-	style lipgloss.Style
-}
+// headerEnds renders what the header says as its two ends: the trail,
+// and the size with the logo. The trail takes the room it needs, and
+// the other end comes back as much of itself as fits beside it, which
+// may be nothing. The logo goes before the size: it is the one of the
+// two that tells the reader nothing they did not know.
+func (m Model) headerEnds(room int) (string, string) {
+	crumb := m.crumb(room)
+	left := room - lipgloss.Width(crumb) - groupGap
 
-// width is how many cells the fact takes, label and all.
-func (f fact) width() int {
-	if f.label == "" {
-		return lipgloss.Width(f.value)
+	size := m.styles.dbSize.Render(formatSize(m.tree.Size()))
+	if end := size + m.styles.separator.Render(sizeSeparator) + m.styles.logoName.Render(logoName); lipgloss.Width(end) <= left {
+		return crumb, end
+	}
+	if lipgloss.Width(size) <= left {
+		return crumb, size
 	}
 
-	return lipgloss.Width(f.label) + 1 + lipgloss.Width(f.value)
+	return crumb, ""
 }
 
-// facts renders what the header says as its two ends: the bucket, and
-// the file with its size. Each is shortened to what the room it is
-// given leaves it, and an end with nothing left to say comes back
-// empty.
-func (m Model) facts(room int) (string, string) {
-	bucket := fact{label: bucketLabel, value: m.crumb(), style: m.styles.crumb}
-	size := fact{value: formatSize(m.tree.Size()), style: m.styles.dbSize}
-	file := fact{label: dbLabel, value: m.tree.Path(), style: m.styles.dbPath}
-
-	sep := lipgloss.Width(factSeparator)
-	// What is left for the path once the bucket, the size, the label
-	// of the path and the gaps between them have taken theirs. The
-	// path is cut from the left: the file name is what tells two
-	// databases apart, and it sits at the end.
-	if left := room - bucket.width() - size.width() - sep - groupGap - lipgloss.Width(dbLabel) - 1; left >= minPathWidth {
-		file.value = truncateLeft(file.value, left)
-
-		return m.renderFacts(bucket), m.renderFacts(file, size)
+// crumb renders the trail from the file down to the open bucket at no
+// more than width cells. The buckets in its middle give way first,
+// nearest the file first, and stand behind an ellipsis, so the trail
+// keeps the two steps that say what it is: the file it starts from and
+// the bucket it ends in. When even those do not fit, the file gives
+// way too, and last of all the open bucket is cut from the left.
+func (m Model) crumb(width int) string {
+	steps := []string{m.styles.crumbFile.Render(printable(m.tree.Name()))}
+	plain := []string{printable(m.tree.Name())}
+	for _, name := range m.path() {
+		steps = append(steps, m.styles.crumb.Render(printable(name)))
+		plain = append(plain, printable(name))
 	}
-	// Without the path, the size is worth keeping whatever it costs
-	// the bucket: seven cells buy a fact of their own, and the bucket
-	// reads much the same one directory shorter.
-	if left := room - size.width() - groupGap - lipgloss.Width(bucketLabel) - 1; left >= minCrumbWidth {
-		bucket.value = truncateLeft(bucket.value, left)
 
-		return m.renderFacts(bucket), m.renderFacts(size)
-	}
-	bucket.value = truncateLeft(bucket.value, max(room-lipgloss.Width(bucketLabel)-1, 0))
-
-	return m.renderFacts(bucket), ""
-}
-
-// renderFacts styles the facts and sets them out along the bar.
-func (m Model) renderFacts(facts ...fact) string {
-	parts := make([]string, 0, len(facts))
-	for _, f := range facts {
-		text := f.style.Render(f.value)
-		if f.label != "" {
-			text = m.styles.label.Render(f.label) + " " + text
+	sep := m.styles.separator.Render(crumbSeparator)
+	// Drop the buckets after the file one at a time, never the last:
+	// it is the bucket that is open.
+	for dropped := 0; dropped < max(len(steps)-1, 1); dropped++ {
+		shown := []string{steps[0]}
+		if dropped > 0 {
+			shown = append(shown, m.styles.separator.Render(ellipsis))
 		}
-		parts = append(parts, text)
+		shown = append(shown, steps[1+dropped:]...)
+		if line := strings.Join(shown, sep); lipgloss.Width(line) <= width {
+			return line
+		}
 	}
 
-	return strings.Join(parts, m.styles.separator.Render(factSeparator))
-}
-
-// crumb names the bucket that is open, by the whole path from the root
-// down to it. The root itself is spelled as a separator rather than
-// left blank, so the bar says where we are instead of saying nothing.
-func (m Model) crumb() string {
-	if !m.hasParent() {
-		return "/"
+	last := len(steps) - 1
+	if last > 0 {
+		line := m.styles.separator.Render(ellipsis) + sep + steps[last]
+		if lipgloss.Width(line) <= width {
+			return line
+		}
+	}
+	style := m.styles.crumb
+	if last == 0 {
+		style = m.styles.crumbFile
 	}
 
-	return printable(path.Join(m.path()...))
+	return style.Render(truncateLeft(plain[last], width))
 }
 
 // formatSize spells a size in the largest unit that leaves a number

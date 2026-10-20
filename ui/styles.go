@@ -39,13 +39,12 @@ type styles struct {
 	tokenPunct   lipgloss.Style
 
 	bar       lipgloss.Style
-	label     lipgloss.Style
 	separator lipgloss.Style
-	dbPath    lipgloss.Style
 	dbSize    lipgloss.Style
+	logoName  lipgloss.Style
+	crumbFile lipgloss.Style
 	crumb     lipgloss.Style
 
-	footer      lipgloss.Style
 	shortcut    lipgloss.Style
 	shortcutKey lipgloss.Style
 	errorText   lipgloss.Style
@@ -79,20 +78,17 @@ func newStyles() styles {
 		tokenLiteral: item.Foreground(colorLiteral),
 		tokenPunct:   item.Foreground(colorMuted),
 
-		// The header and the footer are bars rather than boxes: a
-		// column of padding at either end, and no frame. Only the
-		// columns between them are framed.
-		bar:       lipgloss.NewStyle().Padding(0, barPadding),
-		label:     lipgloss.NewStyle().Foreground(colorMuted),
+		// The header and the footer are framed like the columns, a
+		// single line high, so the screen reads as one set of boxes.
+		bar:       box.Height(1),
 		separator: lipgloss.NewStyle().Foreground(colorMuted),
-		dbPath:    lipgloss.NewStyle().Foreground(colorMuted),
 		dbSize:    lipgloss.NewStyle().Foreground(colorMuted),
+		logoName:  lipgloss.NewStyle().Foreground(colorAccent).Bold(true),
+		// The file opens the trail in the plain foreground, bold, and
+		// the buckets after it in the color they are listed in.
+		crumbFile: lipgloss.NewStyle().Bold(true),
 		crumb:     lipgloss.NewStyle().Foreground(colorBucket).Bold(true),
 
-		// The footer is framed like a column, which is what tells it
-		// apart from the header: one bar of the screen is chrome and
-		// the other is the keys that drive it.
-		footer:      box.Height(1),
 		shortcut:    lipgloss.NewStyle().Foreground(colorMuted),
 		shortcutKey: lipgloss.NewStyle().Foreground(colorAccent).Bold(true),
 		errorText:   lipgloss.NewStyle().Foreground(colorError),
